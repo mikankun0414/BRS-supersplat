@@ -23,6 +23,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 
 const dotFragmentShader = /* wgsl */`
 uniform ghost: f32;
+uniform dotColor: vec4f;
 
 var dotTexture: texture_2d<f32>;
 var dotTexture_sampler: sampler;
@@ -38,9 +39,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         if (tex.a < 0.5) {
             discard;
         }
-        output.color = vec4f(tex.rgb, 1.0);
+        output.color = vec4f(uniform.dotColor.rgb * tex.rgb, 1.0);
     } else {
-        output.color = vec4f(tex.rgb, tex.a * uniform.ghost);
+        output.color = vec4f(uniform.dotColor.rgb * tex.rgb, tex.a * uniform.ghost);
     }
     return output;
 }

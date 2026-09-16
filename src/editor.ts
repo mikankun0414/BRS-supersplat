@@ -49,8 +49,8 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
     // removal from the scene - undoing an AddSplatOp (duplicate / separate) also
     // removes the layer, and pruning there would delete the very op redo needs.
     events.on('scene.elementDestroyed', (element: Element) => {
-        if (element.type === ElementType.splat) {
-            editHistory.removeForSplat(element as Splat);
+        if (element.type === ElementType.splat || element.type === ElementType.model) {
+            editHistory.removeForSplat(element);
         }
     });
 
@@ -312,6 +312,16 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
             scene.camera.focus({
                 focalPoint: vec,
                 radius: bound.halfExtents.length() * vec2.x,
+                speed: 1
+            });
+            return;
+        }
+
+        const selected = events.invoke('selection') as Element;
+        if (selected?.type === ElementType.model && selected.worldBound) {
+            scene.camera.focus({
+                focalPoint: selected.worldBound.center,
+                radius: selected.worldBound.halfExtents.length(),
                 speed: 1
             });
         }

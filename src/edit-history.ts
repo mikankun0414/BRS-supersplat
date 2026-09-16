@@ -1,16 +1,17 @@
 import { CommandQueue } from './command-queue';
 import { EditOp, MultiOp } from './edit-ops';
+import { Element } from './element';
 import { Events } from './events';
 import { Splat } from './splat';
 
-// Check if an operation references a specific splat
-const opReferencesSplat = (op: EditOp, splat: Splat): boolean => {
+// Check if an operation references a specific element
+const opReferencesElement = (op: EditOp, element: Element): boolean => {
     // Handle MultiOp by checking nested operations
     if (op instanceof MultiOp) {
-        return op.ops.some(nestedOp => opReferencesSplat(nestedOp, splat));
+        return op.ops.some(nestedOp => opReferencesElement(nestedOp, element));
     }
     // Check for splat property on the operation
-    return (op as any).splat === splat;
+    return (op as any).splat === element;
 };
 
 class EditHistory {
@@ -140,8 +141,8 @@ class EditHistory {
         });
     }
 
-    // Remove all operations that reference a specific splat
-    removeForSplat(splat: Splat) {
+    // Remove all operations that reference a specific element
+    removeForSplat(element: Element) {
         // serialize with the queue so we don't reshape history while a queued op is mid-flight
         // (which could leave queued undo/redo pointing at indices that no longer exist).
         return this.queue(() => {
@@ -150,8 +151,8 @@ class EditHistory {
 
             for (let i = 0; i < this.history.length; i++) {
                 const op = this.history[i];
-                // Skip ops referencing the splat; don't destroy them since the caller handles that
-                if (!opReferencesSplat(op, splat)) {
+                // Skip ops referencing the element; don't destroy them since the caller handles that
+                if (!opReferencesElement(op, element)) {
                     // Keep this operation
                     newHistory.push(op);
                     // Track cursor position (count kept operations before original cursor)

@@ -2,6 +2,7 @@ import { Mat4, Quat, Vec3 } from 'playcanvas';
 
 import { PlacePivotOp, EntityTransformOp, MultiOp } from './edit-ops';
 import { Events } from './events';
+import type { GltfModel } from './model';
 import { Pivot } from './pivot';
 import { Splat } from './splat';
 import { Transform } from './transform';
@@ -13,7 +14,7 @@ const transform = new Transform();
 
 class EntityTransformHandler implements TransformHandler {
     events: Events;
-    splat: Splat;
+    splat: Splat | GltfModel;
     top: EntityTransformOp;
     pop: PlacePivotOp;
     bindMat = new Mat4();
@@ -62,7 +63,7 @@ class EntityTransformHandler implements TransformHandler {
     }
 
     activate() {
-        this.splat = this.events.invoke('selection') as Splat;
+        this.splat = this.events.invoke('selection') as Splat | GltfModel;
         if (this.splat) {
             this.placePivot();
         }

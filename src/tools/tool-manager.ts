@@ -5,6 +5,9 @@ import { Events } from '../events';
 interface Tool {
     activate: () => void;
     deactivate: () => void;
+    // Optional component-mode switching for tools such as mesh editing. It is
+    // checked before the regular move/rotate/scale shortcut fallback.
+    setComponentMode?: (mode: 'vertex' | 'edge' | 'face') => boolean;
     // optional: handle a transform-mode request (1/2/3 shortcuts) while this
     // tool is active. return true if consumed, otherwise the corresponding
     // transform tool is activated instead.
@@ -68,6 +71,16 @@ class ToolManager {
         // corresponding transform tool
         const transformShortcut = (mode: 'translate' | 'rotate' | 'scale', toolName: string) => {
             const tool = this.active ? this.tools.get(this.active) : null;
+            if (this.active === 'meshEdit' && tool?.setComponentMode) {
+                const componentMode = {
+                    translate: 'vertex',
+                    rotate: 'edge',
+                    scale: 'face'
+                }[mode] as 'vertex' | 'edge' | 'face';
+                if (tool.setComponentMode(componentMode)) {
+                    return;
+                }
+            }
             if (!tool?.setTransformMode?.(mode)) {
                 this.activate(toolName);
             }

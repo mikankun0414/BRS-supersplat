@@ -23,7 +23,9 @@ import { BrushSelection } from './tools/brush-selection';
 import { EyedropperSelection } from './tools/eyedropper-selection';
 import { FloodSelection } from './tools/flood-selection';
 import { LassoSelection } from './tools/lasso-selection';
+import { LayerAlignTool } from './tools/layer-align';
 import { MeasureTool } from './tools/measure-tool';
+import { MeshEditTool } from './tools/mesh-edit-tool';
 import { MoveTool } from './tools/move-tool';
 import { OrientTool } from './tools/orient-tool';
 import { PolygonSelection } from './tools/polygon-selection';
@@ -255,8 +257,10 @@ const main = async () => {
     toolManager.register('move', new MoveTool(events, scene));
     toolManager.register('rotate', new RotateTool(events, scene));
     toolManager.register('scale', new ScaleTool(events, scene));
+    toolManager.register('meshEdit', new MeshEditTool(events, scene, editorUI.canvas));
     toolManager.register('measure', new MeasureTool(events, scene, editorUI.canvasContainer, editorUI.annotationContainer.dom));
     toolManager.register('orient', new OrientTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer, editorUI.annotationContainer.dom));
+    toolManager.register('layerAlign', new LayerAlignTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer));
 
     const boundDimensionsOverlay = new BoundDimensionsOverlay(events, scene, editorUI.canvasContainer, editorUI.annotationContainer.dom);
 

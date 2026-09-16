@@ -4,6 +4,8 @@ import { AppBase, Asset } from 'playcanvas';
 import { EditorSplatResource } from './editor-splat-resource';
 import { Events } from './events';
 import { defaultLodIndex, loadSplatSource } from './io';
+import { GltfModel } from './model';
+import { isGltfModel, ModelImportFile, prepareModelSource } from './model-loader';
 import { Splat } from './splat';
 import { i18n } from './ui/localization';
 
@@ -22,6 +24,55 @@ class AssetLoader {
         this.app.assets.add(asset);
         asset.resource = resource;
         return asset;
+    }
+
+    async loadModel(files: ModelImportFile[]) {
+        this.events.fire('startSpinner');
+
+        let asset: Asset = null;
+        let cleanup = () => {};
+
+        try {
+            const mainFile = files.find(file => isGltfModel(file.filename));
+            if (!mainFile) {
+                throw new Error('No glTF or GLB file was provided.');
+            }
+
+            const source = await prepareModelSource(files, mainFile);
+            cleanup = source.cleanup;
+
+            asset = new Asset(mainFile.filename, 'container', {
+                url: source.url,
+                filename: mainFile.filename,
+                contents: source.contents ?? undefined
+            });
+            this.app.assets.add(asset);
+
+            await new Promise<void>((resolve, reject) => {
+                asset.once('load', () => resolve());
+                asset.once('error', (error: unknown) => reject(error));
+                this.app.assets.load(asset);
+            });
+
+            const model = new GltfModel(asset, cleanup);
+            cleanup = () => {};
+            return model;
+        } catch (error) {
+            if (asset) {
+                const registry = asset.registry;
+                registry?.remove(asset);
+                try {
+                    asset.unload();
+                } finally {
+                    cleanup();
+                }
+            } else {
+                cleanup();
+            }
+            throw error;
+        } finally {
+            this.events.fire('stopSpinner');
+        }
     }
 
     async load(filename: string, fileSystem: ReadFileSystem, animationFrame?: boolean, skipReorder?: boolean) {

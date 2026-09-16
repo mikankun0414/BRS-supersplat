@@ -51,6 +51,20 @@ const STRATUM_OUTLINE = { slope: 2, bias: 4 };
 // view depth at which behind-camera segment endpoints are clipped
 const NEAR_CLIP = 1e-3;
 
+type ToolOverlayOptions = {
+    // Colors are RGB(A) arrays so the overlay can be used without depending
+    // on the UI color classes. Existing callers keep the original white/orange
+    // defaults when no options are provided.
+    dotColor?: number[];
+    lineColor?: number[];
+    fillColor?: number[];
+    // Face selections can be shown through the model. The original measure
+    // and orient overlays intentionally keep fills depth-tested.
+    ghostFills?: boolean;
+    dotSize?: number;
+    lineWidth?: number;
+};
+
 // unit quad corners as two triangles
 const quadCorners = [-1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1];
 
@@ -171,9 +185,11 @@ class ToolOverlay extends Element {
     private linePositions: number[] = [];
     private outlinePositions: number[] = [];
     private fillPositions: number[] = [];
+    private options: ToolOverlayOptions;
 
-    constructor() {
+    constructor(options: ToolOverlayOptions = {}) {
         super(ElementType.debug);
+        this.options = options;
         this.baseEntity = new Entity('toolOverlayBase');
         this.ghostEntity = new Entity('toolOverlayGhost');
     }
@@ -221,21 +237,27 @@ class ToolOverlay extends Element {
             return material;
         };
 
+        const dotColor = this.options.dotColor ?? [1, 1, 1, 1];
+        const lineColor = this.options.lineColor ?? [1, 1, 1, 1];
+        const fillColor = this.options.fillColor ?? FILL_COLOR;
+
         const dotBase = makeMaterial('toolOverlayDotBase', dotVertexShader, dotFragmentShader, false, true);
         dotBase.setParameter('dotTexture', this.texture);
+        dotBase.setParameter('dotColor', dotColor);
         dotBase.setParameter('ghost', 0);
 
         const dotGhost = makeMaterial('toolOverlayDotGhost', dotVertexShader, dotFragmentShader, true, true);
         dotGhost.setParameter('dotTexture', this.texture);
+        dotGhost.setParameter('dotColor', dotColor);
         dotGhost.setParameter('ghost', GHOST_OPACITY);
 
         const lineBase = makeMaterial('toolOverlayLineBase', lineVertexShader, lineFragmentShader, false);
-        lineBase.setParameter('lineColor', [1, 1, 1, 1]);
+        lineBase.setParameter('lineColor', lineColor);
         lineBase.slopeDepthBias = STRATUM_LINE.slope;
         lineBase.depthBias = STRATUM_LINE.bias;
 
         const lineGhost = makeMaterial('toolOverlayLineGhost', lineVertexShader, lineFragmentShader, true);
-        lineGhost.setParameter('lineColor', [1, 1, 1, GHOST_OPACITY]);
+        lineGhost.setParameter('lineColor', [lineColor[0], lineColor[1], lineColor[2], GHOST_OPACITY]);
 
         const outlineBase = makeMaterial('toolOverlayOutlineBase', lineVertexShader, lineFragmentShader, false);
         outlineBase.setParameter('lineColor', [0, 0, 0, 1]);
@@ -245,7 +267,17 @@ class ToolOverlay extends Element {
         const fillBase = makeMaterial('toolOverlayFillBase', fillVertexShader, fillFragmentShader, false);
         fillBase.blendState = blend;
         fillBase.cull = CULLFACE_BACK;
-        fillBase.setParameter('fillColor', FILL_COLOR);
+        fillBase.setParameter('fillColor', fillColor);
+
+        const fillGhost = this.options.ghostFills ?
+            makeMaterial('toolOverlayFillGhost', fillVertexShader, fillFragmentShader, true) : null;
+        if (fillGhost) {
+            fillGhost.blendState = blend;
+            fillGhost.cull = CULLFACE_BACK;
+            fillGhost.setParameter('fillColor', [
+                fillColor[0], fillColor[1], fillColor[2], (fillColor[3] ?? 1) * GHOST_OPACITY
+            ]);
+        }
 
         const makeMesh = () => {
             const mesh = new Mesh(device);
@@ -290,6 +322,7 @@ class ToolOverlay extends Element {
 
         this.ghostEntity.addComponent('render', {
             meshInstances: makeInstances([
+                ...(fillGhost ? [[this.fillMesh, fillGhost] as [Mesh, ShaderMaterial]] : []),
                 [this.lineMesh, lineGhost],
                 [this.dotMesh, dotGhost]
             ])
@@ -349,6 +382,9 @@ class ToolOverlay extends Element {
 
         const worldSize = (px: number, depth: number) => px * camera.worldSizePerPixel(depth);
 
+        const dotSize = this.options.dotSize ?? DOT_SIZE;
+        const lineWidth = this.options.lineWidth ?? LINE_WIDTH;
+
         const viewDepth = (p: Vec3) => tmp.sub2(p, cameraPos).dot(cameraFwd);
 
         // dots: camera-facing quads with constant screen-space size
@@ -362,7 +398,7 @@ class ToolOverlay extends Element {
             if (depth <= 0) {
                 continue;
             }
-            const s = worldSize(DOT_SIZE, depth) * 0.5;
+            const s = worldSize(dotSize, depth) * 0.5;
             for (let j = 0; j < 12; j += 2) {
                 const cx = quadCorners[j];
                 const cy = quadCorners[j + 1];
@@ -423,7 +459,7 @@ class ToolOverlay extends Element {
                 );
             };
 
-            ribbon(linePositions, LINE_WIDTH);
+            ribbon(linePositions, lineWidth);
             ribbon(outlinePositions, LINE_OUTLINE_WIDTH);
         }
 
@@ -450,4 +486,4 @@ class ToolOverlay extends Element {
     }
 }
 
-export { ToolOverlay, OverlayWriter };
+export { ToolOverlay, ToolOverlayOptions, OverlayWriter };

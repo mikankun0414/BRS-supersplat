@@ -4,7 +4,9 @@ import { Events } from '../events';
 import { ShortcutManager } from '../shortcut-manager';
 import { i18n } from './localization';
 import { MenuPanel } from './menu-panel';
+import layerAlignSvg from './svg/layer-align.svg';
 import measureSvg from './svg/measure.svg';
+import meshEditSvg from './svg/mesh-edit.svg';
 import orientSvg from './svg/orient.svg';
 import redoSvg from './svg/redo.svg';
 import boxSvg from './svg/select-box.svg';
@@ -293,6 +295,12 @@ class BottomToolbar extends Container {
             icon: 'E112'
         });
 
+        const meshEdit = new Button({
+            id: 'bottom-toolbar-mesh-edit',
+            class: 'bottom-toolbar-tool',
+            enabled: false
+        });
+
         const measure = new Button({
             id: 'bottom-toolbar-measure',
             class: 'bottom-toolbar-tool'
@@ -300,6 +308,11 @@ class BottomToolbar extends Container {
 
         const orient = new Button({
             id: 'bottom-toolbar-orient',
+            class: 'bottom-toolbar-tool'
+        });
+
+        const layerAlign = new Button({
+            id: 'bottom-toolbar-layer-align',
             class: 'bottom-toolbar-tool'
         });
 
@@ -324,6 +337,8 @@ class BottomToolbar extends Container {
         box.dom.appendChild(createSvg(boxSvg));
         measure.dom.appendChild(createSvg(measureSvg));
         orient.dom.appendChild(createSvg(orientSvg));
+        layerAlign.dom.appendChild(createSvg(layerAlignSvg));
+        meshEdit.dom.appendChild(createSvg(meshEditSvg));
         // crop.dom.appendChild(createSvg(cropSvg));
 
         this.append(undo);
@@ -345,9 +360,11 @@ class BottomToolbar extends Container {
         this.append(move);
         this.append(rotate);
         this.append(scale);
+        this.append(meshEdit);
         this.append(new Element({ class: 'bottom-toolbar-separator' }));
         this.append(measure);
         this.append(orient);
+        this.append(layerAlign);
         this.append(coordSpace);
         this.append(origin);
 
@@ -369,8 +386,10 @@ class BottomToolbar extends Container {
         move.dom.addEventListener('click', () => events.fire('tool.move'));
         rotate.dom.addEventListener('click', () => events.fire('tool.rotate'));
         scale.dom.addEventListener('click', () => events.fire('tool.scale'));
+        meshEdit.on('click', () => events.fire('tool.meshEdit'));
         measure.dom.addEventListener('click', () => events.fire('tool.measure'));
         orient.dom.addEventListener('click', () => events.fire('tool.orient'));
+        layerAlign.dom.addEventListener('click', () => events.fire('tool.layerAlign'));
         coordSpace.dom.addEventListener('click', () => events.fire('tool.toggleCoordSpace'));
         origin.dom.addEventListener('click', (e: MouseEvent) => {
             if (events.invoke('tool.active') === 'orient') {
@@ -430,8 +449,14 @@ class BottomToolbar extends Container {
             move.class[toolName === 'move' ? 'add' : 'remove']('active');
             rotate.class[toolName === 'rotate' ? 'add' : 'remove']('active');
             scale.class[toolName === 'scale' ? 'add' : 'remove']('active');
+            meshEdit.class[toolName === 'meshEdit' ? 'add' : 'remove']('active');
             measure.class[toolName === 'measure' ? 'add' : 'remove']('active');
             orient.class[toolName === 'orient' ? 'add' : 'remove']('active');
+            layerAlign.class[toolName === 'layerAlign' ? 'add' : 'remove']('active');
+        });
+
+        events.on('selection.changed', (selection: { type?: string }) => {
+            meshEdit.enabled = selection?.type === 'model';
         });
 
         events.on('tool.coordSpace', (space: 'local' | 'world') => {
@@ -451,8 +476,10 @@ class BottomToolbar extends Container {
         tooltips.register(move, tooltip('tooltip.bottom-toolbar.move', 'tool.moveShortcut'));
         tooltips.register(rotate, tooltip('tooltip.bottom-toolbar.rotate', 'tool.rotateShortcut'));
         tooltips.register(scale, tooltip('tooltip.bottom-toolbar.scale', 'tool.scaleShortcut'));
+        tooltips.register(meshEdit, tooltip('tooltip.bottom-toolbar.mesh-edit'));
         tooltips.register(measure, tooltip('tooltip.bottom-toolbar.measure'));
         tooltips.register(orient, tooltip('tooltip.bottom-toolbar.orient'));
+        tooltips.register(layerAlign, tooltip('tooltip.bottom-toolbar.layer-align'));
         tooltips.register(coordSpace, tooltip('tooltip.bottom-toolbar.local-space', 'tool.toggleCoordSpace'));
         tooltips.register(origin, () => i18n.t(
             events.invoke('tool.active') === 'orient' ? 'orient.set-pivot' : 'tooltip.bottom-toolbar.reset-pivot'

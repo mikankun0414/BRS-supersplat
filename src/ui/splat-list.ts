@@ -3,6 +3,7 @@ import { Container, Label, Element as PcuiElement, TextInput } from '@playcanvas
 import { SplatRenameOp } from '../edit-ops';
 import { Element, ElementType } from '../element';
 import { Events } from '../events';
+import { GltfModel } from '../model';
 import { Splat } from '../splat';
 import deleteSvg from './svg/delete.svg';
 import hiddenSvg from './svg/hidden.svg';
@@ -164,6 +165,8 @@ class SplatItem extends Container {
     }
 }
 
+type SceneListElement = Splat | GltfModel;
+
 class SplatList extends Container {
     constructor(events: Events, args = {}) {
         args = {
@@ -173,7 +176,7 @@ class SplatList extends Container {
 
         super(args);
 
-        const items = new Map<Splat, SplatItem>();
+        const items = new Map<SceneListElement, SplatItem>();
         let soloMode = false;
         const savedVisibility = new Map<Splat, boolean>();
 
@@ -183,12 +186,17 @@ class SplatList extends Container {
         });
 
         events.on('scene.elementAdded', (element: Element) => {
-            if (element.type === ElementType.splat) {
-                const splat = element as Splat;
-                const item = new SplatItem(splat.name, edit);
-                this.append(item);
-                items.set(splat, item);
+            if (element.type !== ElementType.splat && element.type !== ElementType.model) {
+                return;
+            }
 
+            const sceneElement = element as SceneListElement;
+            const item = new SplatItem(sceneElement.name, edit);
+            this.append(item);
+            items.set(sceneElement, item);
+
+            if (sceneElement.type === ElementType.splat) {
+                const splat = sceneElement as Splat;
                 if (soloMode) {
                     savedVisibility.set(splat, splat.visible);
                     splat.visible = false;
@@ -208,32 +216,50 @@ class SplatList extends Container {
                 item.on('rename', (value: string) => {
                     events.fire('edit.add', new SplatRenameOp(splat, value));
                 });
+            } else {
+                const model = sceneElement as GltfModel;
+                item.on('visible', () => {
+                    model.visible = true;
+                });
+                item.on('invisible', () => {
+                    model.visible = false;
+                });
+                item.on('rename', (value: string) => {
+                    model.name = value;
+                });
             }
+
+            item.visible = sceneElement.visible;
         });
 
         events.on('scene.elementRemoved', (element: Element) => {
-            if (element.type === ElementType.splat) {
-                const splat = element as Splat;
-                const item = items.get(splat);
-                if (item) {
-                    this.remove(item);
-                    items.delete(splat);
-                }
-                savedVisibility.delete(splat);
+            if (element.type !== ElementType.splat && element.type !== ElementType.model) {
+                return;
+            }
+
+            const sceneElement = element as SceneListElement;
+            const item = items.get(sceneElement);
+            if (item) {
+                this.remove(item);
+                item.destroy();
+                items.delete(sceneElement);
+            }
+            if (sceneElement.type === ElementType.splat) {
+                savedVisibility.delete(sceneElement as Splat);
             }
         });
 
-        events.on('selection.changed', (selection: Splat, prev: Splat) => {
+        events.on('selection.changed', (selection: SceneListElement, prev: SceneListElement) => {
             items.forEach((value, key) => {
                 value.selected = key === selection;
             });
 
             if (soloMode) {
-                if (prev) {
-                    prev.visible = false;
+                if (prev?.type === ElementType.splat) {
+                    (prev as Splat).visible = false;
                 }
-                if (selection) {
-                    selection.visible = true;
+                if (selection?.type === ElementType.splat) {
+                    (selection as Splat).visible = true;
                 }
             }
         });
@@ -243,12 +269,20 @@ class SplatList extends Container {
             const selection = events.invoke('selection') as Splat;
 
             if (soloMode) {
-                items.forEach((item, splat) => {
+                items.forEach((item, element) => {
+                    if (element.type !== ElementType.splat) {
+                        return;
+                    }
+                    const splat = element as Splat;
                     savedVisibility.set(splat, splat.visible);
                     splat.visible = splat === selection;
                 });
             } else {
-                items.forEach((item, splat) => {
+                items.forEach((item, element) => {
+                    if (element.type !== ElementType.splat) {
+                        return;
+                    }
+                    const splat = element as Splat;
                     const wasVisible = savedVisibility.get(splat);
                     splat.visible = wasVisible !== undefined ? wasVisible : true;
                 });
@@ -270,39 +304,57 @@ class SplatList extends Container {
             }
         });
 
+        events.on('model.name', (model: GltfModel) => {
+            const item = items.get(model);
+            if (item) {
+                item.name = model.name;
+            }
+        });
+
+        events.on('model.visibility', (model: GltfModel) => {
+            const item = items.get(model);
+            if (item) {
+                item.visible = model.visible;
+            }
+        });
+
         this.on('click', (item: SplatItem) => {
-            for (const [key, value] of items) {
+            for (const [element, value] of items) {
                 if (item === value) {
-                    if (soloMode && !key.visible) {
-                        key.visible = true;
+                    if (element.type === ElementType.splat) {
+                        const splat = element as Splat;
+                        if (soloMode && !splat.visible) {
+                            splat.visible = true;
+                        }
                     }
-                    events.fire('selection', key);
+                    events.fire('selection', element);
                     break;
                 }
             }
         });
 
         this.on('removeClicked', async (item: SplatItem) => {
-            let splat;
-            for (const [key, value] of items) {
+            let sceneElement: SceneListElement;
+            for (const [element, value] of items) {
                 if (item === value) {
-                    splat = key;
+                    sceneElement = element;
                     break;
                 }
             }
 
-            if (!splat) {
+            if (!sceneElement) {
                 return;
             }
 
+            const isModel = sceneElement.type === ElementType.model;
             const result = await events.invoke('showPopup', {
                 type: 'yesno',
-                header: 'Remove Splat',
-                message: `Are you sure you want to remove '${splat.name}' from the scene? This operation can not be undone.`
+                header: isModel ? 'Remove Model' : 'Remove Splat',
+                message: `Are you sure you want to remove '${sceneElement.name}' from the scene? This operation can not be undone.`
             });
 
             if (result?.action === 'yes') {
-                splat.destroy();
+                sceneElement.destroy();
             }
         });
     }

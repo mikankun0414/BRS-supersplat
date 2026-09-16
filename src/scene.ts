@@ -83,6 +83,7 @@ class Scene {
     app: PCApp;
     wire: WireRenderer;
     worldLayer: Layer;
+    modelLayer: Layer;
     splatLayer: Layer;
     overlayLayer: Layer;
     centersLayer: Layer;
@@ -312,6 +313,10 @@ class Scene {
         this.worldLayer = this.app.scene.layers.getLayerByName('World');
         this.wire.layer = this.worldLayer;
 
+        // glTF models use their own layer so their regular forward-rendered
+        // materials do not enter the Gaussian Splat MRT pass.
+        this.modelLayer = new Layer({ name: 'Model' });
+
         // splat layer - dedicated layer for splat rendering with MRT
         this.splatLayer = new Layer({
             name: 'Splat',
@@ -343,10 +348,28 @@ class Scene {
         });
 
         const layers = this.app.scene.layers;
+        layers.push(this.modelLayer);
         layers.push(this.splatLayer);
         layers.push(this.overlayLayer);
         layers.push(this.centersLayer);
         layers.push(this.gizmoLayer);
+
+        // The editor scene has no authored lights, so provide a small neutral
+        // studio setup for imported PBR glTF materials. These lights are scoped
+        // to the model layer and do not change Gaussian Splat rendering.
+        const addModelLight = (name: string, rotation: [number, number, number], intensity: number) => {
+            const entity = new Entity(name);
+            entity.addComponent('light', {
+                type: 'directional',
+                color: new Color(1, 1, 1),
+                intensity
+            });
+            entity.setLocalEulerAngles(...rotation);
+            entity.light.layers = [this.modelLayer.id];
+            this.app.root.addChild(entity);
+        };
+        addModelLight('modelKeyLight', [45, 35, 0], 1.8);
+        addModelLight('modelFillLight', [-30, -140, 0], 0.6);
 
         this.projectedSplatRenderer = new ProjectedSplatRenderer(this);
         this.dataProcessor = new DataProcessor(this.app.graphicsDevice);
@@ -385,6 +408,9 @@ class Scene {
         splats.forEach((splat) => {
             (splat as Splat).destroy();
         });
+
+        const models = this.getElementsByType(ElementType.model);
+        models.forEach(model => (model as any).destroy());
     }
 
     // elements removed while their add() was still awaiting element.add().

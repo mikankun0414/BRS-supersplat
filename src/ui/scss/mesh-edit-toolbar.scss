@@ -1,0 +1,60 @@
+@use 'colors.scss' as *;
+
+#mesh-edit-toolbar {
+    position: absolute;
+    left: 50%;
+    top: 48px;
+    min-height: 42px;
+    max-width: calc(100% - 32px);
+    transform: translate(-50%, 0);
+    padding: 6px 10px;
+    border-radius: 7px;
+    background-color: $bcg-dark;
+
+    &:not(.pcui-hidden) {
+        display: flex;
+    }
+
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+
+    .mesh-edit-title,
+    .mesh-edit-status,
+    .mesh-edit-hint {
+        color: $text-secondary;
+        white-space: nowrap;
+    }
+
+    .mesh-edit-title {
+        margin: 0 8px 0 2px;
+        color: $text-primary;
+        font-weight: bold;
+    }
+
+    .mesh-edit-status {
+        margin: 0 8px;
+    }
+
+    .mesh-edit-hint {
+        margin-left: 4px;
+        color: $text-dark;
+    }
+
+    .mesh-edit-mode {
+        min-width: 48px;
+        height: 30px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: 2px;
+
+        &.active {
+            color: $clr-active;
+            background-color: $clr-hilight !important;
+        }
+
+        &:disabled {
+            color: $clr-disabled;
+        }
+    }
+}

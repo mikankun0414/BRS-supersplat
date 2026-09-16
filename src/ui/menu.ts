@@ -178,31 +178,36 @@ class Menu extends Container {
         });
 
         const exportMenuPanel = new MenuPanel([{
+            text: () => i18n.t('model-export.label'),
+            icon: createSvg(sceneExport),
+            isEnabled: () => events.invoke('model.canExport'),
+            onSelect: () => events.invoke('model.export')
+        }, {
             text: 'PLY (.ply)...',
             icon: createSvg(sceneExport),
-            isEnabled: () => !events.invoke('scene.empty'),
+            isEnabled: () => events.invoke('scene.hasSplats'),
             onSelect: () => events.invoke('scene.export', 'ply')
         }, {
             text: 'SOG (.sog)...',
             icon: createSvg(sceneExport),
-            isEnabled: () => !events.invoke('scene.empty'),
+            isEnabled: () => events.invoke('scene.hasSplats'),
             onSelect: () => events.invoke('scene.export', 'sog')
         }, {
             text: 'SPZ (.spz)...',
             icon: createSvg(sceneExport),
-            isEnabled: () => !events.invoke('scene.empty'),
+            isEnabled: () => events.invoke('scene.hasSplats'),
             onSelect: () => events.invoke('scene.export', 'spz')
         }, {
             text: 'Splat (.splat)...',
             icon: createSvg(sceneExport),
-            isEnabled: () => !events.invoke('scene.empty'),
+            isEnabled: () => events.invoke('scene.hasSplats'),
             onSelect: () => events.invoke('scene.export', 'splat')
         }, {
             // separator
         }, {
             text: () => i18n.t('menu.file.export.viewer', { ellipsis: true }),
             icon: createSvg(sceneExport),
-            isEnabled: () => !events.invoke('scene.empty'),
+            isEnabled: () => events.invoke('scene.hasSplats'),
             onSelect: () => events.invoke('scene.export', 'viewer')
         }]);
 
@@ -235,7 +240,7 @@ class Menu extends Container {
         }, {
             text: () => i18n.t('menu.file.save-as', { ellipsis: true }),
             icon: createSvg(sceneSave),
-            isEnabled: () => !events.invoke('scene.empty'),
+            isEnabled: () => events.invoke('scene.hasSplats'),
             onSelect: async () => await events.invoke('doc.saveAs')
         }, {
             // separator
@@ -264,14 +269,14 @@ class Menu extends Container {
             },
             icon: createSvg(sceneExport),
             extra: shortcutManager.formatShortcut('scene.reexport'),
-            isEnabled: () => !!lastExport && !events.invoke('scene.empty'),
+            isEnabled: () => !!lastExport && events.invoke('scene.hasSplats'),
             onSelect: () => events.fire('scene.reexport')
         }, {
             // separator
         }, {
             text: () => i18n.t('menu.file.publish', { ellipsis: true }),
             icon: createSvg(scenePublish),
-            isEnabled: () => !events.invoke('scene.empty'),
+            isEnabled: () => events.invoke('scene.hasSplats'),
             onSelect: async () => await events.invoke('show.publishSettingsDialog')
         }]);
 

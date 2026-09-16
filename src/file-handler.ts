@@ -1,4 +1,4 @@
-import { path, Quat, Vec3 } from 'playcanvas';
+import { GltfExporter, path, Quat, Vec3 } from 'playcanvas';
 
 import type { Pose } from './camera-poses';
 import { CreateDropHandler, resolveHandleFiles } from './drop-handler';
@@ -7,6 +7,8 @@ import { Events } from './events';
 import { buildExportOptions, ExportChoices, ExportDialogResult, ExportType, SceneExportOptions } from './export-options';
 import { ExportSettings, loadExportSettings, saveExportSettings } from './export-settings';
 import { BlobReadSource, BrowserFileSystem, MappedReadFileSystem, pickWriteTarget, sourcesOf, WriteTarget } from './io';
+import { GltfModel } from './model';
+import { isGltfModel, ModelImportFile } from './model-loader';
 import { recentImports, RecentImport } from './recent-files';
 import { Scene } from './scene';
 import { Splat } from './splat';
@@ -62,6 +64,13 @@ const filePickerTypes: { [key: string]: FilePickerAcceptType } = {
             'application/x-gaussian-splat': ['.spz']
         }
     },
+    'gltf': {
+        description: 'glTF 3D Model',
+        accept: {
+            'model/gltf+json': ['.gltf'],
+            'model/gltf-binary': ['.glb']
+        }
+    },
     'indexTxt': {
         description: 'Colmap Poses (Images.txt)',
         accept: {
@@ -89,6 +98,8 @@ const allImportTypes = {
         'application/x-gaussian-splat': ['.json', '.sog', '.splat', '.ksplat', '.spz'],
         'image/webp': ['.webp'],
         'application/x-lcc': ['.lcc', '.lcc2', '.bin'],
+        'model/gltf+json': ['.gltf'],
+        'model/gltf-binary': ['.glb'],
         'text/plain': ['.txt']
     }
 };
@@ -328,6 +339,18 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         }
     };
 
+    // Load a glTF/GLB container and add its render hierarchy to the model layer.
+    const importGltfModel = async (files: ImportFile[]) => {
+        try {
+            const model = await scene.assetLoader.loadModel(files as ModelImportFile[]);
+            await scene.add(model);
+            return model;
+        } catch (error) {
+            const displayName = files.find(file => isGltfModel(file.filename))?.filename ?? 'unknown';
+            await showLoadError((error as any).message ?? error, displayName);
+        }
+    };
+
     // figure out what the set of files are (ply sequence, document, sog set, ply) and then import them
     const importFiles = async (files: ImportFile[], animationFrame = false) => {
         const filenames = files.map(f => f.filename.toLowerCase());
@@ -341,11 +364,23 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         } else if (isSog(filenames) || isLcc(filenames)) {
             const model = await importSplatModel(files, animationFrame);
             if (model) result.push(model);
+        } else if (filenames.some(isGltfModel)) {
+            // Pass the complete selection to the container loader. A .gltf
+            // file may refer to sibling .bin and texture files, while .glb
+            // normally keeps those resources embedded.
+            for (let i = 0; i < filenames.length; i++) {
+                if (isGltfModel(filenames[i])) {
+                    // Put this model first so the loader uses it as the main
+                    // file when several glTF files were selected together.
+                    const modelFiles = [files[i], ...files.filter((_, index) => index !== i)];
+                    await importGltfModel(modelFiles);
+                }
+            }
         } else {
             // check for unrecognized file types
             for (let i = 0; i < filenames.length; i++) {
                 const filename = filenames[i].toLowerCase();
-                if (['.ssproj', '.ply', '.splat', '.sog', '.webp', 'images.txt', '.json', '.ksplat', '.spz'].every(ext => !filename.endsWith(ext))) {
+                if (['.ssproj', '.ply', '.splat', '.sog', '.webp', 'images.txt', '.json', '.ksplat', '.spz', '.gltf', '.glb'].every(ext => !filename.endsWith(ext))) {
                     await showLoadError('Unrecognized file type', filename);
                     return;
                 }
@@ -392,7 +427,7 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         fileSelector = document.createElement('input');
         fileSelector.setAttribute('id', 'file-selector');
         fileSelector.setAttribute('type', 'file');
-        fileSelector.setAttribute('accept', '.ply,.splat,meta.json,.json,.webp,.ssproj,.sog,.lcc,.lcc2,.bin,.txt,.ksplat,.spz');
+        fileSelector.setAttribute('accept', '.ply,.splat,meta.json,.json,.webp,.ssproj,.sog,.lcc,.lcc2,.bin,.txt,.ksplat,.spz,.gltf,.glb');
         fileSelector.setAttribute('multiple', 'true');
 
         fileSelector.onchange = () => {
@@ -437,8 +472,12 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         return getSplats();
     });
 
+    events.function('scene.hasSplats', () => {
+        return getSplats().length > 0;
+    });
+
     events.function('scene.empty', () => {
-        return getSplats().length === 0;
+        return getSplats().length === 0 && scene.getElementsByType(ElementType.model).length === 0;
     });
 
     // Include the document archive as well as imported files, including hidden layers.
@@ -490,6 +529,7 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
                         filePickerTypes.lcc,
                         filePickerTypes.ksplat,
                         filePickerTypes.spz,
+                        filePickerTypes.gltf,
                         filePickerTypes.indexTxt
                     ]
                 });
@@ -510,6 +550,61 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
                     console.error(error);
                 }
             }
+        }
+    });
+
+    let exportingModel = false;
+    events.function('model.canExport', () => !exportingModel && events.invoke('selection') instanceof GltfModel);
+    events.function('model.export', async () => {
+        const model = events.invoke('selection');
+        if (exportingModel || !(model instanceof GltfModel) || !model.entity) {
+            return;
+        }
+
+        exportingModel = true;
+        let stream: FileSystemWritableFileStream;
+        let spinning = false;
+        try {
+            const filename = `${model.filename.replace(/\.[^.]+$/, '').split(/[\\/]/).pop()}_edited.glb`;
+            // Open the picker while the menu click still has user activation.
+            const handle = window.showSaveFilePicker ? await window.showSaveFilePicker({
+                id: 'SuperSplatModelExport',
+                suggestedName: filename,
+                types: [{ description: 'GLB 3D Model', accept: { 'model/gltf-binary': ['.glb'] } }]
+            }) : null;
+
+            events.fire('startSpinner');
+            spinning = true;
+            await new Promise<void>((resolve) => {
+                setTimeout(resolve);
+            });
+            if (!model.entity) {
+                throw new Error(i18n.t('model-export.unavailable'));
+            }
+            model.entity.syncHierarchy();
+            const contents = await new GltfExporter().build(model.entity, { stripUnusedAttributes: false });
+            stream = await handle?.createWritable();
+            const writer = await new BrowserFileSystem(filename, stream).createWriter(filename);
+            await writer.write(new Uint8Array(contents));
+            await writer.close();
+        } catch (error: any) {
+            try {
+                await stream?.abort();
+            } catch {
+                // The writer may already be closed.
+            }
+            if (error.name !== 'AbortError') {
+                await events.invoke('showPopup', {
+                    type: 'error',
+                    header: i18n.t('popup.error'),
+                    message: `${i18n.t('model-export.failed')}: ${error instanceof Error ? error.message : String(error)}`
+                });
+            }
+        } finally {
+            if (spinning) {
+                events.fire('stopSpinner');
+            }
+            exportingModel = false;
         }
     });
 

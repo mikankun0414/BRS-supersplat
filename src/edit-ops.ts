@@ -1,10 +1,11 @@
-import { Color, Mat4, Quat, Vec3 } from 'playcanvas';
+import { Color, Mat4, Mesh, Quat, Vec3 } from 'playcanvas';
 
 import { AnimTrack } from './anim-track';
 import { BoxShape } from './box-shape';
 import { composeGrades, createGradeTerms, type GradeTerms } from './color-grade';
 import type { RemovedInstances } from './gaussian-instances';
 import { IndexRanges, sortedPredicate } from './index-ranges';
+import type { GltfModel } from './model';
 import { Pivot } from './pivot';
 import { Scene } from './scene';
 import { SphereShape } from './sphere-shape';
@@ -239,14 +240,14 @@ class RestoreMissingInstancesOp {
     }
 }
 
-// op for modifying a splat transform
+// op for modifying a scene element transform
 class EntityTransformOp {
     name = 'entityTransform';
-    splat: Splat;
+    splat: Splat | GltfModel;
     oldt: Transform;
     newt: Transform;
 
-    constructor(options: { splat: Splat, oldt: Transform, newt: Transform }) {
+    constructor(options: { splat: Splat | GltfModel, oldt: Transform, newt: Transform }) {
         this.splat = options.splat;
         this.oldt = options.oldt;
         this.newt = options.newt;
@@ -264,6 +265,63 @@ class EntityTransformOp {
         this.splat = null;
         this.oldt = null;
         this.newt = null;
+    }
+}
+
+type MeshEditChange = {
+    mesh: Mesh;
+    before: Float32Array;
+    after: Float32Array;
+    beforeNormals?: Float32Array;
+    afterNormals?: Float32Array;
+};
+
+// Stores a committed vertex-position edit for one glTF model. The tool applies
+// the live drag before the operation is added to history, so the history event
+// uses suppressOp=true; do/undo still contain the complete state transition
+// for later redo/undo operations.
+class MeshEditOp {
+    name = 'meshEdit';
+    // Keep the target under the existing `splat` field so EditHistory can use
+    // the same element-reference cleanup path for both splats and models.
+    splat: GltfModel;
+    changes: MeshEditChange[];
+
+    constructor(options: { model: GltfModel, changes: MeshEditChange[] }) {
+        this.splat = options.model;
+        this.changes = options.changes;
+    }
+
+    private apply(useAfter: boolean) {
+        if (!this.splat) {
+            return;
+        }
+
+        this.changes.forEach((change) => {
+            const positions = useAfter ? change.after : change.before;
+            const normals = useAfter ? change.afterNormals : change.beforeNormals;
+
+            change.mesh.setPositions(positions);
+            if (normals) {
+                change.mesh.setNormals(normals);
+            }
+            change.mesh.update();
+        });
+
+        this.splat.refreshWorldBound();
+    }
+
+    do() {
+        this.apply(true);
+    }
+
+    undo() {
+        this.apply(false);
+    }
+
+    destroy() {
+        this.splat = null;
+        this.changes = [];
     }
 }
 
@@ -656,5 +714,7 @@ export {
     AnimTrackEditOp,
     MultiOp,
     AddSplatOp,
-    SplatRenameOp
+    SplatRenameOp,
+    MeshEditOp,
+    MeshEditChange
 };

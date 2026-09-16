@@ -78,6 +78,53 @@
         }
     }
 
+    // The layer alignment tool has two compact rows because it combines two
+    // layer selectors, point-set buttons and alignment mode controls.
+    &.layer-align-toolbar {
+        height: auto;
+        min-height: 54px;
+        max-width: calc(100% - 32px);
+        padding: 8px 16px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+
+        > .select-toolbar-label {
+            align-self: center;
+            margin: 0;
+        }
+
+        .layer-align-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+
+            > .select-toolbar-label {
+                margin: 0;
+            }
+        }
+
+        .layer-align-select {
+            width: 150px;
+        }
+
+        .layer-align-mode {
+            width: 120px;
+        }
+
+        .layer-align-pick {
+            min-width: 84px;
+            margin: 0;
+
+            &.active {
+                color: $clr-active;
+                background-color: $clr-hilight !important;
+            }
+        }
+    }
+
     // 16px group break from the preceding cluster, 6px to the input it labels
     .select-toolbar-label {
         margin: 0px 6px 0px 16px;

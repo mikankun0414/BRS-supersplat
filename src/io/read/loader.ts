@@ -16,9 +16,11 @@ import {
     getInputFormat,
     materializeToDataTable,
     readFile,
-    selectLod,
-    sortMortonOrder
+    selectLod
 } from '@playcanvas/splat-transform';
+
+import { safeSortMortonOrder } from './safe-morton-order';
+import { createUniformSubsetSource } from './uniform-subset-source';
 
 type LoadResult = {
     source: ChunkSource;
@@ -29,9 +31,26 @@ type LoadResult = {
 // or null to cancel the load.
 type PickLod = (lodCounts: readonly number[]) => Promise<number | null>;
 
+// invoked when a single-LOD file contains too many Gaussians to load safely at once.
+type PickLargeLoad = (numGaussians: number) => Promise<number | null>;
+
 // maximum splat count considered reasonable to load, used to select a default
 // LOD level for multi-LOD formats (e.g. LCC)
 const LOD_MAX_SPLATS = 20_000_000;
+
+const LARGE_LOAD_THRESHOLD = 5_000_000;
+const LARGE_LOAD_TARGETS = [1_000_000, 5_000_000, 10_000_000, 20_000_000];
+const LARGE_LOAD_DEFAULT = 5_000_000;
+
+const largeLoadTargets = (numGaussians: number): number[] => {
+    return LARGE_LOAD_TARGETS.filter(t => t < numGaussians);
+};
+
+const defaultLargeLoadTarget = (numGaussians: number): number => {
+    const targets = largeLoadTargets(numGaussians);
+    const safe = targets.filter(t => t <= LARGE_LOAD_DEFAULT);
+    return safe[safe.length - 1] ?? targets[0] ?? Math.max(1, numGaussians - 1);
+};
 
 // pick the most detailed LOD under the splat limit, or the least detailed
 // when all levels exceed it
@@ -147,12 +166,17 @@ const selectFirst = async (sources: ChunkSource[], pickLod?: PickLod) => {
 };
 
 const mortonOrderSource = async (source: ChunkSource) => {
+    // For very large sources (> 20M), generating full morton permutation by materializing
+    // all positions exceeds browser heap limits. Skip morton permutation in that case.
+    if (source.meta.numGaussians > 20_000_000) {
+        return source;
+    }
     const pool = createChunkDataPool({ chunkSize: source.meta.chunkSize });
     try {
         const positions = await materializeToDataTable(source, pool, new Set<ChunkLayer>(['position']));
         const indices = new Uint32Array(source.meta.numGaussians);
         for (let i = 0; i < indices.length; ++i) indices[i] = i;
-        sortMortonOrder(positions, indices);
+        safeSortMortonOrder(positions, indices);
         return new PermutedChunkSource(source, indices);
     } finally {
         pool.destroy();
@@ -175,7 +199,8 @@ const loadSplatSource = async (
     filename: string,
     fileSystem: ReadFileSystem,
     skipReorder?: boolean,
-    pickLod?: PickLod
+    pickLod?: PickLod,
+    pickLargeLoad?: PickLargeLoad
 ): Promise<LoadResult | null> => {
     const inputFormat = getInputFormat(filename);
     const lowerFilename = filename.toLowerCase();
@@ -217,6 +242,21 @@ const loadSplatSource = async (
     try {
         validateSplatSource(source);
 
+        // Prompt for preview size when a single-LOD source exceeds the safety threshold.
+        if (source.meta.numLods <= 1 && source.meta.numGaussians > LARGE_LOAD_THRESHOLD) {
+            const target = pickLargeLoad ?
+                await pickLargeLoad(source.meta.numGaussians) :
+                defaultLargeLoadTarget(source.meta.numGaussians);
+            if (target === null) {
+                await source.close();
+                return null;
+            }
+            if (target < source.meta.numGaussians) {
+                const pool = createChunkDataPool({ chunkSize: source.meta.chunkSize });
+                source = createUniformSubsetSource(source, target, pool);
+            }
+        }
+
         const isCompressedPly = lowerFilename.endsWith('.compressed.ply');
         if (inputFormat !== 'sog' && !isCompressedPly && !skipReorder) {
             source = await mortonOrderSource(source);
@@ -230,8 +270,11 @@ const loadSplatSource = async (
 };
 
 export {
+    defaultLargeLoadTarget,
     defaultLodIndex,
+    largeLoadTargets,
     loadSplatSource,
     PermutedChunkSource,
+    type PickLargeLoad,
     validateSplatSource
 };

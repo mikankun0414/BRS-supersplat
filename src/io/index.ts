@@ -7,9 +7,12 @@ export {
     BlobReadSource,
     MappedReadFileSystem,
     sourcesOf,
+    defaultLargeLoadTarget,
     defaultLodIndex,
+    largeLoadTargets,
     loadSplatSource,
     PermutedChunkSource,
+    type PickLargeLoad,
     validateSplatSource
 } from './read';
 

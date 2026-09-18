@@ -11,8 +11,11 @@ export {
 
 // Loading functions
 export {
+    defaultLargeLoadTarget,
     defaultLodIndex,
+    largeLoadTargets,
     loadSplatSource,
     PermutedChunkSource,
+    type PickLargeLoad,
     validateSplatSource
 } from './loader';

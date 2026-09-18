@@ -3,7 +3,7 @@ import { AppBase, Asset } from 'playcanvas';
 
 import { EditorSplatResource } from './editor-splat-resource';
 import { Events } from './events';
-import { defaultLodIndex, loadSplatSource } from './io';
+import { defaultLargeLoadTarget, defaultLodIndex, largeLoadTargets, loadSplatSource } from './io';
 import { GltfModel } from './model';
 import { isGltfModel, ModelImportFile, prepareModelSource } from './model-loader';
 import { Splat } from './splat';
@@ -119,8 +119,49 @@ class AssetLoader {
                 }
             };
 
+            // Prompt for a preview size when a single-LOD PLY exceeds the safety threshold.
+            const pickLargeLoad = async (numGaussians: number) => {
+                this.events.fire('stopSpinner');
+                try {
+                    const targets = largeLoadTargets(numGaussians);
+                    const options = (targets.length > 0 ? targets : [defaultLargeLoadTarget(numGaussians)]).map(count => ({
+                        v: String(count),
+                        t: `${i18n.formatInteger(count)} ${i18n.t('popup.lod-select-splats')}`
+                    }));
+                    options.push({
+                        v: String(numGaussians),
+                        t: `${i18n.formatInteger(numGaussians)} ${i18n.t('popup.lod-select-splats')} (Full)`
+                    });
+
+                    const result = await this.events.invoke('showPopup', {
+                        type: 'okcancel',
+                        header: i18n.t('popup.load-options-header'),
+                        message: i18n.t('popup.large-load-message', {
+                            count: i18n.formatInteger(numGaussians)
+                        }),
+                        icon: false,
+                        select: {
+                            value: String(defaultLargeLoadTarget(numGaussians)),
+                            options
+                        },
+                        warning: {
+                            text: i18n.t('popup.large-load-warning')
+                        }
+                    });
+                    return result.action === 'ok' ? parseInt(result.value, 10) : null;
+                } finally {
+                    this.events.fire('startSpinner');
+                }
+            };
+
             // Skip reordering for animation frames (speed) or when explicitly requested (already ordered)
-            const result = await loadSplatSource(filename, fileSystem, skipReorder || animationFrame, animationFrame ? undefined : pickLod);
+            const result = await loadSplatSource(
+                filename,
+                fileSystem,
+                skipReorder || animationFrame,
+                animationFrame ? undefined : pickLod,
+                animationFrame ? undefined : pickLargeLoad
+            );
             if (!result) {
                 // user cancelled LOD selection
                 return null;

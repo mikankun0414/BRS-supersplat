@@ -495,8 +495,9 @@ def launch_should_skip_board_move(state, launch_intent_at):
 
 def sync_should_skip_move(state, run_id, derived_status, sync_started_at=None):
     """Older or cross-run sync must not roll back an explicit lifecycle choice."""
-    if not state or not isinstance(state, dict):
-        return False, None
+    # Only the Run this workspace is working on may move the card; a finished old Run must not.
+    if not state or not isinstance(state, dict) or not state.get('run_id'):
+        return True, 'no current run recorded for this workspace'
     kind = state.get('kind')
     if kind in TERMINAL_EXPLICIT_KINDS:
         return True, 'explicit terminal state blocks worker sync'
@@ -757,18 +758,19 @@ def board_pending(reason, run_id):
     pending_id = pending_status_id(config)
     with board_lifecycle_lock():
         if pending_id:
-            attempt = board_set(pending_id, '保留: ' + reason, config)
+            attempt = board_set(pending_id, '判断待ち: ' + reason, config)
             if attempt.get('outcome_unknown'):
                 return {**attempt, 'used_pending_column': False, 'state_written': False}
             if attempt.get('moved'):
                 write_board_state(run_id, 'explicit-pending', pending_id, reason)
                 return {**attempt, 'used_pending_column': True, 'state_written': True}
-        result = board_set('in-progress', '保留: ' + reason, config)
+        # Waiting on the user's decision belongs in In review, not In progress.
+        result = board_set('in-review', '判断待ち: ' + reason, config)
         if result.get('outcome_unknown'):
             return {**result, 'used_pending_column': False, 'state_written': False}
         if not result.get('moved'):
             return {**result, 'used_pending_column': False, 'state_written': False}
-        write_board_state(run_id, 'explicit-pending', 'in-progress', reason)
+        write_board_state(run_id, 'explicit-pending', 'in-review', reason)
     return {**result, 'used_pending_column': False, 'fallback': True, 'state_written': True}
 
 

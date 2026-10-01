@@ -89,8 +89,8 @@ class BoardTransitionTests(unittest.TestCase):
             result = t.board_pending('承認待ち', 'run_a')
         self.assertFalse(result['used_pending_column'])
         self.assertTrue(result['fallback'])
-        self.assertIn('in-progress', calls[-1])
-        self.assertIn('保留: 承認待ち', calls[-1][calls[-1].index('--comment') + 1])
+        self.assertIn('in-review', calls[-1])
+        self.assertIn('判断待ち: 承認待ち', calls[-1][calls[-1].index('--comment') + 1])
 
     def test_pending_falls_back_when_column_move_fails(self):
         calls = []
@@ -107,7 +107,7 @@ class BoardTransitionTests(unittest.TestCase):
              patch.object(t, 'write_board_state'):
             result = t.board_pending('待ち', 'run_a')
         self.assertFalse(result['used_pending_column'])
-        self.assertIn('in-progress', calls[-1])
+        self.assertIn('in-review', calls[-1])
 
     def test_review_explicit_in_review(self):
         calls = []
@@ -116,6 +116,17 @@ class BoardTransitionTests(unittest.TestCase):
              patch.object(t, 'write_board_state'):
             t.board_review('確認だけ完了', 'run_r')
         self.assertIn('in-review', calls[0])
+
+    def test_sync_skips_without_current_run_record(self):
+        """A finished old Run must not move the card when no current Run is recorded."""
+        workers = [worker('succeeded')] * 4
+        for state in (None, {'run_id': '', 'kind': 'sync', 'status': 'in-progress',
+                             'at': '2026-10-01T12:00:00+00:00'}):
+            with patch.object(t, 'run_workers', return_value=workers),                  patch.object(t, 'record_results', return_value=0),                  patch.object(t, 'read_board_state', return_value=state),                  patch.object(t, 'board_set') as move:
+                result = t.board_sync('run_old')
+            self.assertTrue(result['skipped'])
+            self.assertIn('current run', result['skip_reason'])
+            move.assert_not_called()
 
     def test_sync_skips_when_state_is_other_run(self):
         workers = [worker('succeeded')]

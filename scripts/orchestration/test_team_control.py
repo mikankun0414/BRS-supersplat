@@ -312,6 +312,16 @@ class BudgetV2Tests(unittest.TestCase):
         credits={'available_count':3,'next_expires_at':(self.clock+3600)*1000}
         self.assertTrue(self.evaluate([self.window('session',98)],credits=credits)['blocked'])
 
+    def test_full_use_policy_runs_until_exhausted(self):
+        """hard_stop 1.0: keep the chosen AI until its quota is really gone (no early hand-off)."""
+        full={'short_window':{'target':.93,'hard_stop':1.0},'weekly':{'target':.88,'hard_stop':1.0},
+              'monthly':{'target':.83,'hard_stop':1.0},'reserve':{'weekly':0,'monthly':0}}
+        provider={'windows':[self.window('session',97,60),self.window('weekly',99,1440,10080)]}
+        result=evaluate_budget(provider,full,30,[],'codex',False,self.clock)
+        self.assertFalse(result['blocked'])
+        provider={'windows':[self.window('weekly',100,1440,10080)]}
+        self.assertTrue(evaluate_budget(provider,full,30,[],'codex',False,self.clock)['blocked'])
+
 if __name__=='__main__': unittest.main()
 
 class ReadOnlySnapshotTests(unittest.TestCase):

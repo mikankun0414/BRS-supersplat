@@ -1,5 +1,5 @@
 {
-  "kit_commit": "679fa87",
+  "kit_commit": "b591672",
   "files": {
     ".agents/rules/ai-team.md": "2d76f182c9db602dc98c9248b6cbe1b07d1e6faac81f4fb126e72e24be846ee7",
     ".cursor/rules/ai-team.mdc": "eedc0d202578281f402bf7f1ee0d2276c8411b64dde2d583a4c27ca5c5237170",
@@ -14,14 +14,14 @@
     "scripts/jev-judge.ps1": "8353ca483208cad862073e1681c0a11515a6b48eceddc164e2785b4a13a51ad6",
     "scripts/orchestration/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "scripts/orchestration/antigravity_quota.py": "e6bc867e91abaa1a3b3601e37d59aa7bdd6ad6e7b91bdce74a12745349bfe420",
-    "scripts/orchestration/budget_scheduler.py": "9aea2c3c287375b21b5e9f2e6c8b49a9c1df02ee5912547544e31ee59361867f",
+    "scripts/orchestration/budget_scheduler.py": "e889bc4f583e553437b6b1d3813da209a64ecc2ffeab0e3f6993b9a6b5e06a9e",
     "scripts/orchestration/fixtures/ai-team.json": "16bbca8673b9053e6e7b41aa017a464d7ce49b7cbb4b2cde4a54b5125e9b23ee",
     "scripts/orchestration/fixtures/plan-kickoff.json": "6fa36fb0b0ff17cd22d8af84a81c44e0d2445a2af36a83480f97650b77587529",
     "scripts/orchestration/fixtures/smoke.json": "9c663a44fa8d3e4c59ae1e49c4108fc9221f0c000d9ea522fac3681ee009c163",
     "scripts/orchestration/team_control.py": "0f8d321b9f5db0a270b2a27ed27f06180786ed248dabcef8367653f1f1268d55",
     "scripts/orchestration/test_board.py": "b17294d4b94cd7e79da82dc7c0138b27ce41772ccc80e770ac26d9379570ea1c",
     "scripts/orchestration/test_history.py": "ccef37e274b688ac0878e0d8cacdf941b9157432416c62041b67c091cb1b2234",
-    "scripts/orchestration/test_team_control.py": "856be7b9740aed72168d6343d157a2a79f0e7607c48611b90ad54d83e23ffecb",
+    "scripts/orchestration/test_team_control.py": "b4ab06b60939b0708e74c532b37e28d650e1829e0da75a17431321f29b0ce032",
     "scripts/refresh-latest.ps1": "e577ec03b70bf6b9954936621e5ced10e9f257f0d4d4ff7d2d177195fdb1f1a6",
     "scripts/start-team-task.ps1": "3c048205a8b879af461e95b3a44600bf9383eb89262981aee89a4d685f4fcc85",
     "scripts/team-doctor.ps1": "14f5352d61ca744200bffbf69d3e89cd234cd850c9eff79f316657211d574c4c"

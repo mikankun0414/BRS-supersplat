@@ -61,7 +61,8 @@ def evaluate_budget(provider, targets, task_minutes, recent, agent, important, t
         if minutes is not None and minutes <= 0:
             return blocked(f'{name} reset passed; refresh quota')
         # Short jobs may consume the last few percent; long jobs may not.
-        if kind == 'short_window' and used >= .95 and task_minutes > 15:
+        # A 100% hard stop means "use it up": keep the chosen AI instead of handing off early.
+        if kind == 'short_window' and hard_stop < 1 and used >= .95 and task_minutes > 15:
             return blocked('short quota >=95%; avoid a new long task')
         duration = raw.get('window_minutes')
         start = epoch(raw.get('starts_at'))

@@ -243,19 +243,19 @@
   "budget_targets": {
     "short_window": {
       "target": 0.93,
-      "hard_stop": 0.98
+      "hard_stop": 1.0
     },
     "weekly": {
       "target": 0.88,
-      "hard_stop": 0.95
+      "hard_stop": 1.0
     },
     "monthly": {
       "target": 0.83,
-      "hard_stop": 0.95
+      "hard_stop": 1.0
     },
     "reserve": {
-      "weekly": 0.1,
-      "monthly": 0.1
+      "weekly": 0,
+      "monthly": 0
     }
   },
   "cursor_policy": "Never use auto or -fast variants. Composer and Grok bill the Cursor Models bucket; Claude (Opus, Fable) bills Other Models. GPT models go through Codex first, not Cursor. Cursor takes effort inside the model id (e.g. claude-opus-5-5-high); Orca rejects --effort for Cursor.",

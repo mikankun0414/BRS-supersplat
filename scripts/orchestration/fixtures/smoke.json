@@ -1,0 +1,11 @@
+{
+  "title": "AI team read-only smoke",
+  "class": "FAST",
+  "role": "tester",
+  "external_dependency": false,
+  "target": ".ai and config/ai-team.json",
+  "change": "Read configuration and report that all task contract fields and state files exist.",
+  "constraints": "Do not edit files, generate media, use GPU, update dependencies or commit.",
+  "ownership": "Read-only; return report in worker_done.",
+  "acceptance": "Report missing files, actual tests if any, and explicit succeeded/failed. End and idle after authoritative worker_done."
+}

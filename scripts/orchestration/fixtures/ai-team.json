@@ -1,0 +1,262 @@
+{
+  "python_exe": "ComfyUI/python_embeded/python.exe",
+  "official_sources": [
+    "https://developers.openai.com/api/docs/models/gpt-6.1-sol.md",
+    "https://code.claude.com/docs/en/model-config.md",
+    "https://docs.typesafe.ai/api"
+  ],
+  "candidates": [
+    {
+      "agent": "codex",
+      "model": "gpt-6-luna",
+      "effort": "medium",
+      "origin": "openai",
+      "classes": [
+        "FAST",
+        "STANDARD"
+      ],
+      "roles": [
+        "coordinator",
+        "coder",
+        "tester",
+        "research",
+        "blender",
+        "export",
+        "comfy",
+        "previz-qa",
+        "visual-qa"
+      ],
+      "enabled": true
+    },
+    {
+      "agent": "codex",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "origin": "openai",
+      "classes": [
+        "STRONG"
+      ],
+      "roles": [
+        "coordinator",
+        "coder",
+        "tester",
+        "research",
+        "blender",
+        "export",
+        "comfy",
+        "previz-qa",
+        "visual-qa",
+        "reviewer",
+        "judge",
+        "expert",
+        "planner"
+      ],
+      "enabled": true
+    },
+    {
+      "agent": "claude",
+      "model": "sonnet",
+      "effort": null,
+      "origin": "anthropic",
+      "classes": [
+        "STRONG"
+      ],
+      "roles": [
+        "reviewer",
+        "judge",
+        "expert",
+        "research"
+      ],
+      "enabled": true,
+      "note": "Claude subscription may lapse or come back: keep enabled. If auth or quota is unavailable, routing skips it and falls back to the next candidate."
+    },
+    {
+      "agent": "codex",
+      "model": "gpt-6-astra",
+      "effort": "medium",
+      "origin": "openai",
+      "classes": [
+        "MAX"
+      ],
+      "roles": [
+        "judge",
+        "expert",
+        "planner"
+      ],
+      "enabled": true
+    },
+    {
+      "agent": "cursor",
+      "model": "composer-2.5",
+      "effort": null,
+      "origin": "cursor",
+      "classes": [
+        "FAST",
+        "STANDARD"
+      ],
+      "roles": [
+        "coordinator",
+        "coder",
+        "tester",
+        "research",
+        "blender",
+        "export",
+        "comfy",
+        "previz-qa",
+        "visual-qa"
+      ],
+      "enabled": true,
+      "note": "Annual Cursor plan, Cursor Models bucket. Orca worker-start launch verified 2026-10-01 (run_0e28d7dd37d6: worker_done succeeded, released)."
+    },
+    {
+      "agent": "cursor",
+      "model": "grok-4.7-high",
+      "effort": null,
+      "origin": "xai",
+      "classes": [
+        "STRONG"
+      ],
+      "roles": [
+        "coordinator",
+        "coder",
+        "tester",
+        "research",
+        "blender",
+        "export",
+        "comfy",
+        "previz-qa",
+        "visual-qa",
+        "reviewer",
+        "judge",
+        "expert",
+        "planner"
+      ],
+      "enabled": true,
+      "note": "Annual Cursor plan, Cursor Models bucket. Orca worker-start launch verified 2026-10-01 (run_0e28d7dd37d6: worker_done succeeded, released)."
+    },
+    {
+      "agent": "cursor",
+      "model": "claude-opus-5-5-high",
+      "effort": null,
+      "origin": "anthropic",
+      "classes": [
+        "STRONG"
+      ],
+      "roles": [
+        "reviewer",
+        "judge",
+        "expert",
+        "research",
+        "planner"
+      ],
+      "enabled": true,
+      "note": "Annual Cursor plan, Other Models bucket. Orca worker-start launch verified 2026-10-01 (run_0e28d7dd37d6: worker_done succeeded, released)."
+    },
+    {
+      "agent": "cursor",
+      "model": "claude-fable-5-1-high",
+      "effort": null,
+      "origin": "anthropic",
+      "classes": [
+        "MAX"
+      ],
+      "roles": [
+        "judge",
+        "expert",
+        "planner"
+      ],
+      "enabled": true,
+      "note": "Annual Cursor plan, Other Models bucket. Orca worker-start launch verified 2026-10-01 (run_0e28d7dd37d6: worker_done succeeded, released)."
+    },
+    {
+      "agent": "antigravity",
+      "model": "gemini-3.8-flash-medium",
+      "effort": null,
+      "origin": "google",
+      "classes": [
+        "FAST",
+        "STANDARD"
+      ],
+      "roles": [
+        "coordinator",
+        "coder",
+        "tester",
+        "research",
+        "blender",
+        "export",
+        "comfy",
+        "previz-qa",
+        "visual-qa"
+      ],
+      "enabled": true
+    },
+    {
+      "agent": "antigravity",
+      "model": "gemini-3.8-flash-high",
+      "effort": null,
+      "origin": "google",
+      "classes": [
+        "STRONG"
+      ],
+      "roles": [
+        "reviewer",
+        "research"
+      ],
+      "enabled": true
+    },
+    {
+      "agent": "antigravity",
+      "model": "claude-sonnet-4-6",
+      "effort": null,
+      "origin": "anthropic",
+      "classes": [
+        "STRONG"
+      ],
+      "roles": [
+        "reviewer",
+        "judge",
+        "expert",
+        "research",
+        "planner"
+      ],
+      "enabled": true,
+      "note": "Claude via Antigravity (Google AI Pro quota), separate from the Claude subscription"
+    },
+    {
+      "agent": "antigravity",
+      "model": "claude-opus-4-6-thinking",
+      "effort": null,
+      "origin": "anthropic",
+      "classes": [
+        "MAX"
+      ],
+      "roles": [
+        "judge",
+        "expert",
+        "planner"
+      ],
+      "enabled": true,
+      "note": "Claude via Antigravity (Google AI Pro quota), separate from the Claude subscription"
+    }
+  ],
+  "plan_version": "2026-10-01-v3",
+  "budget_targets": {
+    "short_window": {
+      "target": 0.93,
+      "hard_stop": 0.98
+    },
+    "weekly": {
+      "target": 0.88,
+      "hard_stop": 0.95
+    },
+    "monthly": {
+      "target": 0.83,
+      "hard_stop": 0.95
+    },
+    "reserve": {
+      "weekly": 0.1,
+      "monthly": 0.1
+    }
+  },
+  "cursor_policy": "Never use auto or -fast variants. Composer and Grok bill the Cursor Models bucket; Claude (Opus, Fable) bills Other Models. GPT models go through Codex first, not Cursor. Cursor takes effort inside the model id (e.g. claude-opus-5-5-high); Orca rejects --effort for Cursor."
+}

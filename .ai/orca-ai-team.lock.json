@@ -1,0 +1,29 @@
+{
+  "kit_commit": "e35b5c0-dirty",
+  "files": {
+    ".agents/rules/ai-team.md": "2d76f182c9db602dc98c9248b6cbe1b07d1e6faac81f4fb126e72e24be846ee7",
+    ".cursor/rules/ai-team.mdc": "eedc0d202578281f402bf7f1ee0d2276c8411b64dde2d583a4c27ca5c5237170",
+    "prompts/kickoff.md": "bd0cf7589aff35d58d482a5dab71f08d6e0e7a07b22467d6790959ccefb96738",
+    "prompts/plan-team.md": "35d153bfd23648725fa46cef7a2e3ba9733e244d7d63103186fc440a695de810",
+    "prompts/resume-team.md": "5cc9e35ec6e797a6c330abfee41bf59c5655070d36e482495d7ea6164d421138",
+    "prompts/run-team.md": "14e5b18abd99eae22d25595520647e5da26785a551bf49d38a029ea944c29c12",
+    "scripts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "scripts/ai-team-common.ps1": "d6879239b6e2fa1c5b40a6399b2569283f90c7241492a8c784adf0fab8be9c65",
+    "scripts/board.ps1": "4664c87e22cd8e184e257e984f0a9ef2e15b95aef09e4b4442db5c6cabfd1c51",
+    "scripts/check-budget.ps1": "7a77be444a89a5bfee278916478a937aace671660cf122eee97180c597c226c9",
+    "scripts/jev-judge.ps1": "8353ca483208cad862073e1681c0a11515a6b48eceddc164e2785b4a13a51ad6",
+    "scripts/orchestration/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "scripts/orchestration/antigravity_quota.py": "e6bc867e91abaa1a3b3601e37d59aa7bdd6ad6e7b91bdce74a12745349bfe420",
+    "scripts/orchestration/budget_scheduler.py": "9aea2c3c287375b21b5e9f2e6c8b49a9c1df02ee5912547544e31ee59361867f",
+    "scripts/orchestration/fixtures/ai-team.json": "16bbca8673b9053e6e7b41aa017a464d7ce49b7cbb4b2cde4a54b5125e9b23ee",
+    "scripts/orchestration/fixtures/plan-kickoff.json": "6fa36fb0b0ff17cd22d8af84a81c44e0d2445a2af36a83480f97650b77587529",
+    "scripts/orchestration/fixtures/smoke.json": "9c663a44fa8d3e4c59ae1e49c4108fc9221f0c000d9ea522fac3681ee009c163",
+    "scripts/orchestration/team_control.py": "a07f98f8c1bdcd5c2013982d4086fd63f26b2765928c114c5226fcd8c8a5ef6b",
+    "scripts/orchestration/test_board.py": "f2bc359148d6c6797c79cecffea04ccd7c60acd64dfb8c938ce769f167aba9a1",
+    "scripts/orchestration/test_history.py": "ccef37e274b688ac0878e0d8cacdf941b9157432416c62041b67c091cb1b2234",
+    "scripts/orchestration/test_team_control.py": "856be7b9740aed72168d6343d157a2a79f0e7607c48611b90ad54d83e23ffecb",
+    "scripts/refresh-latest.ps1": "e577ec03b70bf6b9954936621e5ced10e9f257f0d4d4ff7d2d177195fdb1f1a6",
+    "scripts/start-team-task.ps1": "3c048205a8b879af461e95b3a44600bf9383eb89262981aee89a4d685f4fcc85",
+    "scripts/team-doctor.ps1": "14f5352d61ca744200bffbf69d3e89cd234cd850c9eff79f316657211d574c4c"
+  }
+}

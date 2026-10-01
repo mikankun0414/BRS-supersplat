@@ -6,3 +6,7 @@
 .vscode
 dist
 node_modules
+.ai/runtime/
+__pycache__/
+*.pyc
+.env

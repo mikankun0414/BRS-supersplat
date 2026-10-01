@@ -1,0 +1,79 @@
+{
+  "classify-task": {
+    "class": {
+      "type": "choice",
+      "instructions": "Choose the lowest adequate implementation class.",
+      "criteria": {
+        "FAST": "Trivial bounded edit",
+        "STANDARD": "Routine implementation",
+        "STRONG": "Complex multi-file design or repeated failures",
+        "MAX": "Strong models failed; major unresolved risk"
+      }
+    },
+    "needs_freshness_check": {
+      "type": "noul",
+      "instructions": "Does this decision need updated external facts before acting?"
+    }
+  },
+  "gate-handoff": {
+    "complete_report": {
+      "type": "noul",
+      "instructions": "Does the report include changed files, tests, outcome, unverified limits and next step without claiming failed work succeeded?"
+    }
+  },
+  "triage-review": {
+    "severity": {
+      "type": "choice",
+      "instructions": "Choose handling for the review finding.",
+      "criteria": {
+        "ignore": "No real defect",
+        "later": "Low impact",
+        "fix-now": "Material reproducible defect",
+        "block-merge": "Critical unsafe or broken result"
+      }
+    }
+  },
+  "needs-max": {
+    "needs_max": {
+      "type": "noul",
+      "instructions": "Have strong models failed on a material unresolved problem such that MAX is necessary?"
+    }
+  },
+  "review-conflict": {
+    "same_conclusion": {
+      "type": "noul",
+      "instructions": "Are both independent reviews materially aligned?"
+    },
+    "needs_arbitration": {
+      "type": "noul",
+      "instructions": "Is there a material unresolved conflict requiring a judge?"
+    },
+    "needs_freshness_check": {
+      "type": "noul",
+      "instructions": "Does resolving this conflict require current external specifications?"
+    },
+    "severity_conflict": {
+      "type": "score",
+      "instructions": "Rate severity of the unresolved review conflict.",
+      "criteria": [
+        "No material difference",
+        "Minor difference",
+        "Material conflicting safety or correctness conclusions"
+      ]
+    }
+  },
+  "budget-escalation": {
+    "prefer_expiring_budget": {
+      "type": "noul",
+      "instructions": "Is an eligible same-class short-window budget underused and expiring soon while a longer-term pool is being overused?"
+    },
+    "same_class_capacity_exists": {
+      "type": "noul",
+      "instructions": "Is a suitable same-class candidate available before escalating to MAX?"
+    },
+    "reset_review_warranted": {
+      "type": "noul",
+      "instructions": "Given valid ticket expiry, weekly and short-window exhaustion, important waiting work, natural reset timing and alternative capacity, should a coordinator review use of a banked reset? Do not approve purchases or execute resets."
+    }
+  }
+}

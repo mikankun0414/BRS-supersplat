@@ -220,6 +220,21 @@ class BoardTransitionTests(unittest.TestCase):
         move.assert_called_once()
         write_state.assert_called_once_with('run_claim', 'launch', 'in-progress', None)
 
+    def test_dispatch_records_current_run_when_board_move_fails(self):
+        """Ready launch owns the Run even if the column move failed, so a later sync can recover."""
+        task = {'role': 'coder', 'target': 't', 'change': 'c', 'constraints': 'x', 'ownership': 'o', 'acceptance': 'a'}
+        route = {'agent': 'cursor', 'model': 'composer', 'role': 'coder', 'class': 'STANDARD'}
+        receipt = {'ok': True, 'exit_code': 0, 'result': {'state': 'ready', 'dispatchId': 'd1', 'taskId': 't1'}}
+        for move_result in ({'moved': False, 'error': 'busy'}, {'moved': False, 'outcome_unknown': True}):
+            with patch.object(t, 'cli', return_value=receipt), \
+                 patch.object(t, 'save_json'), \
+                 patch.object(t, 'history_append'), \
+                 patch.object(t, 'board_set', return_value=move_result), \
+                 patch.object(t, 'write_board_state') as write_state, \
+                 patch.object(t, 'read_board_state', return_value=None):
+                t.dispatch(task, route, 'run_fail', execute=True)
+            write_state.assert_called_once_with('run_fail', 'launch', 'in-progress', None)
+
     def test_dispatch_skips_board_when_done_arrives_during_worker_start(self):
         """M4: explicit-done after launch intent must not move or overwrite state."""
         task = {'role': 'coder', 'target': 't', 'change': 'c', 'constraints': 'x', 'ownership': 'o', 'acceptance': 'a'}
@@ -569,17 +584,38 @@ class BoardLifecycleConcurrencyTests(unittest.TestCase):
         append.assert_not_called()
         write_state.assert_not_called()
 
-    def test_sync_skips_explicit_working_same_run(self):
+    def test_sync_after_working_same_run_moves_to_review(self):
+        """Rules call working on resume; the same Run's all-success sync must still reach In review."""
         workers = [worker('succeeded')]
         state = {'run_id': 'run_x', 'kind': 'explicit-working', 'status': 'in-progress',
                  'at': '2026-10-01T12:00:00+00:00'}
         with patch.object(t, 'run_workers', return_value=workers), \
              patch.object(t, 'record_results', return_value=0), \
              patch.object(t, 'read_board_state', return_value=state), \
-             patch.object(t, 'board_set') as move:
+             patch.object(t, 'board_set', return_value={'moved': True}) as move, \
+             patch.object(t, 'write_board_state'):
             result = t.board_sync('run_x')
+        self.assertFalse(result.get('skipped'))
+        self.assertEqual(move.call_args[0][0], 'in-review')
+
+    def test_sync_after_working_other_run_is_skipped(self):
+        workers = [worker('succeeded')]
+        state = {'run_id': 'run_new', 'kind': 'explicit-working', 'status': 'in-progress',
+                 'at': '2026-10-01T12:00:00+00:00'}
+        with patch.object(t, 'run_workers', return_value=workers), \
+             patch.object(t, 'record_results', return_value=0), \
+             patch.object(t, 'read_board_state', return_value=state), \
+             patch.object(t, 'board_set') as move:
+            result = t.board_sync('run_old')
         self.assertTrue(result['skipped'])
         move.assert_not_called()
+
+    def test_working_records_current_run_even_when_move_fails(self):
+        """A failed column move must not stop later syncs of the current Run from recovering."""
+        with patch.object(t, 'board_set', return_value={'moved': False, 'error': 'busy'}), \
+             patch.object(t, 'write_board_state') as write_state:
+            t.board_working('run_w')
+        write_state.assert_called_once_with('run_w', 'explicit-working', 'in-progress', None)
 
     def test_board_done_main_fails_without_ratings_on_unknown_move(self):
         argv = ['team_control.py', 'board', 'done', '--run', 'run_a', '--rating', 'good']

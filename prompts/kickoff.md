@@ -5,6 +5,7 @@
 ## 0. 準備と「続き / 見直し / 新規」の判定
 - AGENTS.md と .ai/GOAL, LATEST, PLAN, TEAM, BUDGET, HANDOFF, REVIEW, KICKOFF(あれば) を読む。git status / log も見る。
 - scripts/refresh-latest.ps1 と scripts/check-budget.ps1 -Json を実行する (読み取りのみ)。
+- 前のRunのカードがDoneやIn reviewのままなら、AIが動き始める今 scripts/board.ps1 working -RunId <前のrun> でIn progressに戻す。計画役のRunを作ったら、そのRunでも working を呼ぶ。
 - HANDOFF の「やりかけ」「次の一手」を一言でまとめ、ユーザーに選んでもらう:
   - A 続き: prompts/resume-team.md の手順で履歴から再開する。面談はしない。(やりかけがある時の推奨)
   - B 見直し: 今の GOAL / PLAN / 編成を出発点に、変えたい所だけ面談して計画を作り直す。

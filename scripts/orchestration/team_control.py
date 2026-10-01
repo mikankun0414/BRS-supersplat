@@ -349,8 +349,8 @@ def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
             else:
                 move = board_set('in-progress', '')
                 result['board'] = move
-                if move.get('moved'):
-                    write_board_state(run_id, 'launch', 'in-progress', None)
+                # A ready launch owns the Run even if the column move failed, so a later sync can recover.
+                write_board_state(run_id, 'launch', 'in-progress', None)
     elif not receipt.get('outcome_unknown'):
         history_append({'event': 'result', 'dispatch_id': dispatch_id, 'outcome': 'launch_failed',
                         'duration_min': None, 'review_findings': None})
@@ -505,8 +505,9 @@ def sync_should_skip_move(state, run_id, derived_status, sync_started_at=None):
         return True, 'explicit pending blocks worker sync'
     if kind == 'explicit-review':
         return True, 'explicit review blocks worker sync'
-    if kind == 'explicit-working':
-        return True, 'explicit working blocks worker sync'
+    # Working only guards against other Runs; the same Run's settled workers may move it to review.
+    if kind == 'explicit-working' and state.get('run_id') != run_id:
+        return True, 'explicit working blocks worker sync from run ' + str(run_id)
     state_at = board_state_at(state)
     if (sync_started_at and state_at and
             getattr(sync_started_at, 'tzinfo', None) is not None and
@@ -788,8 +789,8 @@ def board_working(run_id):
     require_board_run(run_id, 'working')
     with board_lifecycle_lock():
         result = board_set('in-progress', '')
-        if result.get('moved'):
-            write_board_state(run_id, 'explicit-working', 'in-progress', None)
+        # Record the current Run even if the move failed, so a later sync can recover.
+        write_board_state(run_id, 'explicit-working', 'in-progress', None)
     return result
 
 

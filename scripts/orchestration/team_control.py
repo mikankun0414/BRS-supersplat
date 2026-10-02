@@ -372,9 +372,21 @@ def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
         return {'started': False, 'route': route}
     # A writer that runs beside a reviewer gets its own worktree; readers stay in this folder.
     where = ['--worktree', 'path:' + str(ROOT)]
+    uncommitted = []
     if place == 'new':
         slug = re.sub(r'[^a-z0-9]+', '-', run_id.lower()).strip('-')[-24:].strip('-')
         where = ['--worktree', 'new-child', '--name', 'ai-' + slug + '-' + uuid.uuid4().hex[:6]]
+        # Start from this checkout's commit, not the remote branch, so the writer sees unpushed work
+        # and the result merges back as a fast-forward.
+        head = _git(['rev-parse', 'HEAD'])
+        if not head:
+            raise ValueError('A new worktree needs this checkout\'s commit (git rev-parse HEAD failed)')
+        where += ['--base-branch', head]
+        # Uncommitted edits stay behind and can block the fast-forward later. .ai/ records always change.
+        for line in (_git(['status', '--porcelain']) or '').splitlines():
+            path = line.split(None, 1)[-1]
+            if not path.startswith('.ai/'):
+                uncommitted.append(path)
     argv = ['orchestration', 'worker-start', '--spec', spec, '--task-title', task.get('title', task['role']),
             *where, '--run', run_id, '--agent', route['agent'],
             '--model', route['model']]
@@ -384,7 +396,8 @@ def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
         argv += ['--from', coordinator_handle]
     argv += ['--json']
     if not execute:
-        return {'started': False, 'dry_run': True, 'route': route, 'argv': argv}
+        return {'started': False, 'dry_run': True, 'route': route, 'argv': argv,
+                **({'uncommitted': uncommitted} if uncommitted else {})}
     launch_intent_at = now()
     receipt = cli(argv, timeout=150)
     # Preserve full unknown/failed receipts. Never retry a launch automatically.
@@ -392,7 +405,8 @@ def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
     save_json(path, {'at': now().isoformat(), 'route': route, 'argv': argv, 'receipt': receipt})
     started = bool(receipt.get('ok') and receipt.get('exit_code') == 0 and
                    receipt.get('result', {}).get('state') == 'ready')
-    result = {'started': started, 'receipt_path': str(path), 'receipt': receipt, 'route': route, 'argv': argv}
+    result = {'started': started, 'receipt_path': str(path), 'receipt': receipt, 'route': route, 'argv': argv,
+              **({'uncommitted': uncommitted} if uncommitted else {})}
     info = receipt.get('result') or {}
     kind, guessed = work_type(task)
     fallback = route.get('assigned_unavailable')

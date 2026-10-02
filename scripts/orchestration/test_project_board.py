@@ -178,9 +178,46 @@ class WorktreeTests(unittest.TestCase):
     def test_new_worktree_task_uses_new_child(self):
         task = {'role': 'coder', 'title': 'x', 'target': 't', 'change': 'c', 'constraints': 'x',
                 'ownership': 'o', 'acceptance': 'a', 'worktree': 'new'}
-        argv = t.dispatch(task, {'agent': 'cursor', 'model': 'composer'}, 'run_20261002_speedup')['argv']
+        with patch.object(t, '_git', return_value='abc123'):
+            argv = t.dispatch(task, {'agent': 'cursor', 'model': 'composer'}, 'run_20261002_speedup')['argv']
         self.assertEqual(argv[argv.index('--worktree') + 1], 'new-child')
         self.assertTrue(argv[argv.index('--name') + 1].startswith('ai-'))
+
+    NEW_TASK = {'role': 'coder', 'title': 'x', 'target': 't', 'change': 'c', 'constraints': 'x',
+                'ownership': 'o', 'acceptance': 'a', 'worktree': 'new'}
+
+    def test_new_worktree_passes_head_as_base(self):
+        with patch.object(t, '_git', return_value='abc123'):
+            argv = t.dispatch(self.NEW_TASK, {'agent': 'cursor', 'model': 'composer'}, 'run_x')['argv']
+        self.assertEqual(argv[argv.index('--base-branch') + 1], 'abc123')
+
+    def test_new_worktree_warns_about_uncommitted_files_outside_ai(self):
+        def fake_git(args):
+            if args[0] == 'status':
+                return ' M README.md\n M .ai/history/model-usage.jsonl\n?? notes.txt'
+            return 'abc123'
+        with patch.object(t, '_git', side_effect=fake_git):
+            result = t.dispatch(self.NEW_TASK, {'agent': 'cursor', 'model': 'composer'}, 'run_x')
+        self.assertEqual(result['uncommitted'], ['README.md', 'notes.txt'])
+
+    def test_new_worktree_is_refused_without_head(self):
+        # Falling back to Orca's default base would hide unpushed commits from the writer.
+        with patch.object(t, '_git', return_value=None), self.assertRaises(ValueError):
+            t.dispatch(self.NEW_TASK, {'agent': 'cursor', 'model': 'composer'}, 'run_x')
+
+    def test_new_worktree_base_is_the_unpushed_local_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+
+            def git(*args):
+                return subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True,
+                                      text=True).stdout.strip()
+            git('init', '-q')
+            for message in ('pushed', 'local only'):
+                git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', message)
+            with patch.object(t, 'ROOT', repo.resolve()):
+                argv = t.dispatch(self.NEW_TASK, {'agent': 'cursor', 'model': 'composer'}, 'run_x')['argv']
+            self.assertEqual(argv[argv.index('--base-branch') + 1], git('rev-parse', 'HEAD'))
 
     def test_default_task_stays_in_this_folder(self):
         task = {'role': 'reviewer', 'target': 't', 'change': 'c', 'constraints': 'x', 'ownership': 'o', 'acceptance': 'a'}

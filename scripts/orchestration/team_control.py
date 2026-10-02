@@ -77,6 +77,60 @@ def cli(argv, timeout=30):
     except OSError:
         return {'ok': False, 'error': {'code': 'cli_unavailable'}}
 
+def norm_path(path):
+    try:
+        path = Path(path).resolve()
+    except OSError:
+        path = Path(path)
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def _git(args):
+    try:
+        p = subprocess.run(['git', *args], cwd=ROOT, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else None
+
+
+def _root_in_checkout():
+    """(this checkout's top folder, ROOT relative to it), or (None, None) outside git."""
+    top = _git(['rev-parse', '--show-toplevel'])
+    if not top:
+        return None, None
+    try:
+        return Path(top).resolve(), Path(ROOT).resolve().relative_to(Path(top).resolve())
+    except (OSError, ValueError):
+        return None, None
+
+
+def state_root():
+    """The same folder in the main checkout. A worktree shares the main checkout's board state and lock."""
+    top, rel = _root_in_checkout()
+    listing = _git(['worktree', 'list', '--porcelain']) if top else None
+    # git lists the main worktree first (submodules too). With --separate-git-dir git lists the git
+    # directory itself and does not know the main folder; then this checkout keeps its own state.
+    for line in (listing or '').splitlines():
+        if line.startswith('worktree '):
+            main = Path(line[len('worktree '):])
+            return main / rel if (main / '.git').exists() else ROOT
+    return ROOT
+
+
+def project_paths():
+    """ROOT in every git worktree of this project (normalized)."""
+    paths = {norm_path(ROOT)}
+    top, rel = _root_in_checkout()
+    listing = _git(['worktree', 'list', '--porcelain']) if top else None
+    for line in (listing or '').splitlines():
+        if line.startswith('worktree '):
+            # Orca names a worker's workspace by its checkout top, which differs from ROOT in a subfolder layout.
+            top_path = Path(line[len('worktree '):])
+            paths.update({norm_path(top_path), norm_path(top_path / rel)})
+    return paths
+
+
 def source_check(url):
     try:
         request = urllib.request.Request(url, headers={'User-Agent': 'Orca-MCP-Team/1.0'})
@@ -309,10 +363,20 @@ def task_spec(task, rules=()):
 
 def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
     spec = task_spec(task, load_config().get('task_rules', []))
+    place = task.get('worktree', 'here')
+    if place not in ('here', 'new'):
+        raise ValueError('Task worktree must be "here" or "new"')
+    if place == 'new' and task.get('role') in ('reviewer', 'judge'):
+        raise ValueError('A read-only role stays in this folder; do not give it a new worktree')
     if route.get('blocked'):
         return {'started': False, 'route': route}
+    # A writer that runs beside a reviewer gets its own worktree; readers stay in this folder.
+    where = ['--worktree', 'path:' + str(ROOT)]
+    if place == 'new':
+        slug = re.sub(r'[^a-z0-9]+', '-', run_id.lower()).strip('-')[-24:].strip('-')
+        where = ['--worktree', 'new-child', '--name', 'ai-' + slug + '-' + uuid.uuid4().hex[:6]]
     argv = ['orchestration', 'worker-start', '--spec', spec, '--task-title', task.get('title', task['role']),
-            '--worktree', 'path:' + str(ROOT), '--run', run_id, '--agent', route['agent'],
+            *where, '--run', run_id, '--agent', route['agent'],
             '--model', route['model']]
     if route.get('effort'):
         argv += ['--effort', route['effort']]
@@ -339,15 +403,17 @@ def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
                     'assigned': (fallback or {}).get('assigned', task.get('assigned')),
                     'used': {k: route.get(k) for k in ('agent', 'model', 'effort', 'origin')},
                     'fallback_reason': [r.get('reason') for r in fallback['rejected']] if fallback else None,
+                    'worktree': next((e.get('id') for e in info.get('effects') or []
+                                      if e.get('kind') == 'worktree'), None) if place == 'new' else None,
                     'launch_state': info.get('state') or ('unknown' if receipt.get('outcome_unknown') else 'failed')})
     if started:
         with board_lifecycle_lock():
-            state = read_board_state()
-            skip, skip_reason = launch_should_skip_board_move(state, launch_intent_at)
+            entry = board_runs(read_board_state()).get(run_id)
+            skip, skip_reason = launch_should_skip_board_move(entry, launch_intent_at)
             if skip:
                 result['board'] = {'moved': False, 'skipped': True, 'reason': skip_reason}
             else:
-                move = board_set('in-progress', '')
+                move = board_set('in-progress', with_questions(run_id))
                 result['board'] = move
                 # A ready launch owns the Run even if the column move failed, so a later sync can recover.
                 write_board_state(run_id, 'launch', 'in-progress', None)
@@ -382,7 +448,7 @@ def pending_status_id(config=None):
 
 
 def read_board_state():
-    path = ROOT / BOARD_STATE_REL
+    path = state_root() / BOARD_STATE_REL
     if not path.exists():
         return None
     try:
@@ -391,9 +457,55 @@ def read_board_state():
         return None
 
 
+def board_runs(state):
+    """{run_id: entry} for every open Run of the project. The old single-Run file reads as one Run."""
+    if not isinstance(state, dict):
+        return {}
+    runs = state.get('runs')
+    if isinstance(runs, dict):
+        return {k: v for k, v in runs.items() if isinstance(v, dict)}
+    return {state['run_id']: state} if state.get('run_id') else {}
+
+
 def write_board_state(run_id, kind, status, reason=None):
-    save_json(ROOT / BOARD_STATE_REL, {'run_id': run_id or '', 'at': now().isoformat(),
-                                        'kind': kind, 'status': status, 'reason': reason})
+    # Finished (completed) Runs are dropped so they can never move the card again.
+    runs = {k: v for k, v in board_runs(read_board_state()).items()
+            if k != run_id and v.get('status') != 'completed'}
+    runs[run_id or ''] = {'run_id': run_id or '', 'at': now().isoformat(),
+                          'kind': kind, 'status': status, 'reason': reason}
+    save_json(state_root() / BOARD_STATE_REL, {'runs': runs, 'at': now().isoformat()})
+
+
+def project_status(runs):
+    """One card for the whole project: any working Run keeps it In progress."""
+    statuses = [e.get('status') for e in runs.values()]
+    if 'in-progress' in statuses:
+        return 'in-progress'
+    waiting = [s for s in statuses if s != 'completed']
+    if not waiting:
+        return 'completed'
+    return 'in-review' if 'in-review' in waiting else waiting[0]
+
+
+def project_target(run_id, own_status):
+    """(card column, other Run ids still working) if this Run moves to own_status."""
+    runs = dict(board_runs(read_board_state()))
+    runs[run_id] = {'status': own_status}
+    busy = sorted(k for k, e in runs.items() if k != run_id and e.get('status') == 'in-progress')
+    return project_status(runs), busy
+
+
+def busy_note(busy, note=''):
+    text = '他のRunが作業中: ' + str(len(busy)) + '件 (' + ', '.join(busy) + ')' if busy else ''
+    return ' / '.join(part for part in (text, note) if part)
+
+
+def with_questions(run_id, note=''):
+    """Keep other Runs' open questions visible when this Run rewrites the card note."""
+    asks = ['判断待ち (' + k + '): ' + str(e.get('reason') or '')
+            for k, e in sorted(board_runs(read_board_state()).items())
+            if k != run_id and e.get('kind') == 'explicit-pending']
+    return ' / '.join(part for part in (note, *asks) if part)
 
 
 def _acquire_board_lock(fd, timeout_sec):
@@ -433,7 +545,7 @@ class board_lifecycle_lock:
         self._fd = None
 
     def __enter__(self):
-        lock_path = ROOT / BOARD_LOCK_REL
+        lock_path = state_root() / BOARD_LOCK_REL
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
         try:
@@ -494,8 +606,8 @@ def launch_should_skip_board_move(state, launch_intent_at):
 
 
 def sync_should_skip_move(state, run_id, derived_status, sync_started_at=None):
-    """Older or cross-run sync must not roll back an explicit lifecycle choice."""
-    # Only the Run this workspace is working on may move the card; a finished old Run must not.
+    """state is this Run's own entry. Older sync must not roll back an explicit lifecycle choice."""
+    # Only Runs registered in this project (launch / working / explicit) move the card; an unknown old Run must not.
     if not state or not isinstance(state, dict) or not state.get('run_id'):
         return True, 'no current run recorded for this workspace'
     kind = state.get('kind')
@@ -531,14 +643,14 @@ WORK_TYPE_BY_ROLE = {'coder': 'code', 'tester': 'test', 'reviewer': 'review', 'j
 RATINGS = ('good', 'ok', 'bad')
 
 def history_append(event):
-    path = ROOT / HISTORY_REL
+    path = state_root() / HISTORY_REL
     path.parent.mkdir(parents=True, exist_ok=True)
     event = {'at': now().isoformat(), 'project': ROOT.name, **event}
     with path.open('a', encoding='utf-8', newline='\n') as stream:
         stream.write(json.dumps(event, ensure_ascii=False) + '\n')
 
 def history_events():
-    path = ROOT / HISTORY_REL
+    path = state_root() / HISTORY_REL
     if not path.exists():
         return []
     events = []
@@ -679,15 +791,19 @@ def suggest_rating(run_id, report=None):
 
 
 def board_card():
-    """This workspace's card on Orca's Workspace Board, or None."""
+    """The project's card (the main checkout) on Orca's Workspace Board, or None."""
     listing = cli(['worktree', 'list', '--json'])
-    here = os.path.normcase(str(ROOT.resolve()))
-    for w in listing.get('result', {}).get('worktrees', []):
-        try:
-            if os.path.normcase(str(Path(w['path']).resolve())) == here:
+    main = state_root()
+    top, rel = _root_in_checkout()
+    # The card is the main checkout; in a subfolder layout Orca lists the checkout top instead.
+    wanted = [norm_path(main)]
+    if rel is not None and rel != Path('.'):
+        wanted.append(norm_path(Path(*main.parts[:len(main.parts) - len(rel.parts)])))
+    worktrees = listing.get('result', {}).get('worktrees', [])
+    for here in wanted:
+        for w in worktrees:
+            if w.get('path') and norm_path(w['path']) == here:
                 return w
-        except (KeyError, OSError):
-            continue
     return None
 
 def board_set(status, note=None, config=None):
@@ -712,20 +828,16 @@ class WorkerRows(list):
 
 
 def run_workers(run_id):
-    """Every Dispatch of the Run that belongs to this workspace."""
+    """Every Dispatch of the Run that belongs to this project, in any of its worktrees."""
     rows, cursor = WorkerRows(), None
     seen = set()
-    here = os.path.normcase(str(ROOT.resolve()))
+    here = project_paths()
     while True:
         argv = ['orchestration', 'worker-list', '--run', run_id, '--json'] + (['--cursor', cursor] if cursor else [])
         result = cli(argv).get('result', {})
         for w in result.get('workers', []):
             space = (w.get('projection', {}).get('workspace', {}).get('id') or '').split('::', 1)[-1]
-            try:
-                mine = os.path.normcase(str(Path(space).resolve())) == here
-            except OSError:
-                mine = False
-            if mine:
+            if space and norm_path(space) in here:
                 rows.append(w)
         page = result.get('page') or {}
         if not page.get('hasMore'):
@@ -758,6 +870,13 @@ def board_pending(reason, run_id):
     config = load_config()
     pending_id = pending_status_id(config)
     with board_lifecycle_lock():
+        target, busy = project_target(run_id, pending_id or 'in-review')
+        if target == 'in-progress':
+            # Another Run is still working: the card stays In progress and the note shows the question.
+            result = board_set('in-progress', busy_note(busy, '判断待ち: ' + reason), config)
+            if result.get('moved'):
+                write_board_state(run_id, 'explicit-pending', pending_id or 'in-review', reason)
+            return {**result, 'used_pending_column': False, 'state_written': bool(result.get('moved'))}
         if pending_id:
             attempt = board_set(pending_id, '判断待ち: ' + reason, config)
             if attempt.get('outcome_unknown'):
@@ -779,7 +898,8 @@ def board_review(note=None, run_id=None):
     require_board_run(run_id, 'review')
     note = (note or '').strip() or 'AI作業完了。人の確認待ち'
     with board_lifecycle_lock():
-        result = board_set('in-review', note)
+        target, busy = project_target(run_id, 'in-review')
+        result = board_set(target, note if target == 'in-review' else busy_note(busy, note))
         if result.get('moved'):
             write_board_state(run_id, 'explicit-review', 'in-review', note)
     return result
@@ -788,7 +908,7 @@ def board_review(note=None, run_id=None):
 def board_working(run_id):
     require_board_run(run_id, 'working')
     with board_lifecycle_lock():
-        result = board_set('in-progress', '')
+        result = board_set('in-progress', with_questions(run_id))
         # Record the current Run even if the move failed, so a later sync can recover.
         write_board_state(run_id, 'explicit-working', 'in-progress', None)
     return result
@@ -800,7 +920,7 @@ def board_failed(reason, run_id):
         raise ValueError('failed requires --reason')
     reason = str(reason).strip()
     with board_lifecycle_lock():
-        result = board_set('in-progress', '中断: ' + reason)
+        result = board_set('in-progress', with_questions(run_id, '中断: ' + reason))
         if result.get('moved'):
             write_board_state(run_id, 'explicit-failed', 'in-progress', reason)
     return result
@@ -816,16 +936,19 @@ def board_sync(run_id):
     if pagination_reason:
         status, note = 'in-progress', pagination_reason
     with board_lifecycle_lock():
-        state = read_board_state()
-        skip, skip_reason = sync_should_skip_move(state, run_id, status, sync_started_at)
+        entry = board_runs(read_board_state()).get(run_id)
+        skip, skip_reason = sync_should_skip_move(entry, run_id, status, sync_started_at)
         if skip:
             return {'moved': False, 'skipped': True, 'skip_reason': skip_reason,
                     'history_results_written': recorded, 'reason': pagination_reason}
-        move = board_set(status, note if note is not None else '')
+        target, busy = project_target(run_id, status)
+        card_note = (note if note is not None else '') if target == status else busy_note(busy, note or '')
+        card_note = with_questions(run_id, card_note)
+        move = board_set(target, card_note)
         if not move.get('moved'):
             return {**move, 'history_results_written': recorded, 'reason': pagination_reason}
-        state = read_board_state()
-        skip, skip_reason = sync_should_skip_move(state, run_id, status, sync_started_at)
+        entry = board_runs(read_board_state()).get(run_id)
+        skip, skip_reason = sync_should_skip_move(entry, run_id, status, sync_started_at)
         if skip:
             revert = board_set(move.get('from') or 'in-progress', '')
             return {'moved': False, 'skipped': True, 'skip_reason': skip_reason,
@@ -923,7 +1046,10 @@ def main():
                 print(json.dumps({'blocked': True, 'reason': str(exc)}, ensure_ascii=False))
                 return 2
             with board_lifecycle_lock():
-                move = board_set('completed', '')
+                # Done closes this Run. The card reaches Done only when no other Run is still open.
+                target, busy = project_target(a.run, 'completed')
+                move = board_set(target, '' if target == 'completed' else
+                                 busy_note(busy) or '確認待ちのRunあり')
                 if not move.get('moved') or move.get('outcome_unknown'):
                     result = {**move, 'ratings_written': 0, 'done_recorded': False}
                 else:
@@ -956,6 +1082,9 @@ def main():
     if a.command == 'start' and not result.get('started') and not result.get('dry_run'):
         return 2
     if a.command == 'board' and a.action == 'done' and not result.get('done_recorded'):
+        return 2
+    # review / pending / failed record nothing when the card did not move; the caller must retry.
+    if a.command == 'board' and a.action in ('review', 'pending', 'failed') and not result.get('moved'):
         return 2
     return 0
 

@@ -7,6 +7,20 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.orchestration import team_control as t
+import tempfile
+
+
+def setUpModule():
+    # Keep board state out of the real checkout.
+    global _tmp, _patcher
+    _tmp = tempfile.TemporaryDirectory()
+    _patcher = patch.object(t, 'state_root', return_value=Path(_tmp.name))
+    _patcher.start()
+
+
+def tearDownModule():
+    _patcher.stop()
+    _tmp.cleanup()
 
 
 def worker(outcome=None, action=False, space=None):
@@ -250,7 +264,7 @@ class BoardTransitionTests(unittest.TestCase):
              patch.object(t, 'read_board_state', return_value=done_state), \
              patch.object(t, 'board_set') as move, \
              patch.object(t, 'write_board_state') as write_state:
-            result = t.dispatch(task, route, 'run_stale', execute=True)
+            result = t.dispatch(task, route, 'run_done', execute=True)
         self.assertTrue(result['started'])
         self.assertTrue(result['board']['skipped'])
         move.assert_not_called()
@@ -290,7 +304,8 @@ class BoardTransitionTests(unittest.TestCase):
         ]
         for kind, status in explicit_cases:
             with self.subTest(kind=kind):
-                state = {'run_id': 'run_other', 'kind': kind, 'status': status,
+                # The guard is per Run: another Run's newer state no longer blocks this launch.
+                state = {'run_id': 'run_stale', 'kind': kind, 'status': status,
                          'at': '2026-10-01T12:05:00+00:00'}
                 with patch.object(t, 'cli', return_value=receipt), \
                      patch.object(t, 'save_json'), \
@@ -340,12 +355,12 @@ class BoardTransitionTests(unittest.TestCase):
         receipt = {'ok': True, 'exit_code': 0, 'result': {'state': 'ready', 'dispatchId': 'd1', 'taskId': 't1'}}
         intent = t.dt.datetime(2026, 10, 1, 14, 0, 0, tzinfo=t.dt.timezone.utc)
         malformed_states = [
-            {'run_id': 'run_bad', 'kind': 'explicit-done', 'status': 'completed'},  # missing at
-            {'run_id': 'run_bad', 'kind': 'explicit-done', 'status': 'completed', 'at': None},  # None at
-            {'run_id': 'run_bad', 'kind': 'explicit-pending', 'status': 'user-pending', 'at': 'corrupt'},  # invalid at
-            {'run_id': 'run_bad', 'kind': 'explicit-review', 'status': 'in-review', 'at': '2026-10-01T12:05:00'},  # naive at
-            {'run_id': 'run_bad', 'kind': 'explicit-working', 'status': 'in-progress', 'at': '2026-10-01T12:05:00'},  # naive at
-            {'run_id': 'run_bad', 'kind': 'explicit-failed', 'status': 'in-progress', 'at': '2026-10-01T12:05:00'},  # naive at
+            {'run_id': 'run_stale', 'kind': 'explicit-done', 'status': 'completed'},  # missing at
+            {'run_id': 'run_stale', 'kind': 'explicit-done', 'status': 'completed', 'at': None},  # None at
+            {'run_id': 'run_stale', 'kind': 'explicit-pending', 'status': 'user-pending', 'at': 'corrupt'},  # invalid at
+            {'run_id': 'run_stale', 'kind': 'explicit-review', 'status': 'in-review', 'at': '2026-10-01T12:05:00'},  # naive at
+            {'run_id': 'run_stale', 'kind': 'explicit-working', 'status': 'in-progress', 'at': '2026-10-01T12:05:00'},  # naive at
+            {'run_id': 'run_stale', 'kind': 'explicit-failed', 'status': 'in-progress', 'at': '2026-10-01T12:05:00'},  # naive at
         ]
         for state in malformed_states:
             with self.subTest(state=state):

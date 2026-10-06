@@ -6,8 +6,10 @@
 export {
     BlobReadSource,
     MappedReadFileSystem,
+    hasLoadProgress,
     sourcesOf,
     defaultLargeLoadTarget,
+    type LoadProgressFileSystem,
     defaultLodIndex,
     largeLoadTargets,
     loadSplatSource,

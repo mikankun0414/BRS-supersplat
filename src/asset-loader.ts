@@ -3,7 +3,7 @@ import { AppBase, Asset } from 'playcanvas';
 
 import { EditorSplatResource } from './editor-splat-resource';
 import { Events } from './events';
-import { defaultLargeLoadTarget, defaultLodIndex, largeLoadTargets, loadSplatSource } from './io';
+import { defaultLargeLoadTarget, defaultLodIndex, hasLoadProgress, largeLoadTargets, loadSplatSource } from './io';
 import { GltfModel } from './model';
 import { isGltfModel, ModelImportFile, prepareModelSource } from './model-loader';
 import { Splat } from './splat';
@@ -84,17 +84,37 @@ class AssetLoader {
     // several layers sharing one resource, so the document loader creates the
     // asset once here and then builds each layer's own instance list.
     async loadAsset(filename: string, fileSystem: ReadFileSystem, animationFrame?: boolean, skipReorder?: boolean) {
-        if (!animationFrame) {
-            this.events.fire('startSpinner');
+        // Animation frames load silently; everything else shows the progress
+        // dialog: bytes read while the file is streamed in (when the file
+        // system can count them), then the synchronous sort and GPU upload
+        // stages by name.
+        const showProgress = !animationFrame;
+        const header = `Loading ${filename.split('/').pop()}`;
+        const tracked = hasLoadProgress(fileSystem) ? fileSystem : null;
+        const progressStart = () => {
+            this.events.fire('progressStart', header);
+            this.events.fire('progressUpdate', { text: 'Reading', progress: 0 });
+        };
+        if (showProgress) {
+            progressStart();
+            if (tracked) {
+                // per file: multi-file formats read one file after another
+                tracked.onProgress = (loaded, total, name) => {
+                    const file = name.split('/').pop();
+                    this.events.fire('progressUpdate', total ?
+                        { text: `Reading ${file}`, progress: Math.min(100, 100 * loaded / total) } :
+                        { text: `Reading ${file} (${(loaded / 1048576).toFixed(0)} MB)`, progress: 0 });
+                };
+            }
         }
 
         try {
             // ask the user which LOD to load when the file contains multiple,
-            // pausing the spinner while the popup is up. the editor loads a
-            // single LOD, so also recommend uploading the original file when
-            // publishing to superspl.at.
+            // dismissing the progress dialog while the popup is up. the editor
+            // loads a single LOD, so also recommend uploading the original file
+            // when publishing to superspl.at.
             const pickLod = async (lodCounts: readonly number[]) => {
-                this.events.fire('stopSpinner');
+                this.events.fire('progressEnd');
                 try {
                     const result = await this.events.invoke('showPopup', {
                         type: 'okcancel',
@@ -115,13 +135,13 @@ class AssetLoader {
                     });
                     return result.action === 'ok' ? parseInt(result.value, 10) : null;
                 } finally {
-                    this.events.fire('startSpinner');
+                    progressStart();
                 }
             };
 
             // Prompt for a preview size when a single-LOD PLY exceeds the safety threshold.
             const pickLargeLoad = async (numGaussians: number) => {
-                this.events.fire('stopSpinner');
+                this.events.fire('progressEnd');
                 try {
                     const targets = largeLoadTargets(numGaussians);
                     const options = (targets.length > 0 ? targets : [defaultLargeLoadTarget(numGaussians)]).map(count => ({
@@ -150,7 +170,7 @@ class AssetLoader {
                     });
                     return result.action === 'ok' ? parseInt(result.value, 10) : null;
                 } finally {
-                    this.events.fire('startSpinner');
+                    progressStart();
                 }
             };
 
@@ -166,14 +186,20 @@ class AssetLoader {
                 // user cancelled LOD selection
                 return null;
             }
-            const { source, transform } = result;
-            const resource = await EditorSplatResource.create(this.app.graphicsDevice, source);
+            const { source, transform, reorder } = result;
+            const onPhase = showProgress ? (phase: 'sort' | 'upload') => {
+                this.events.fire('progressUpdate', { text: phase === 'sort' ? 'Sorting' : 'Uploading', progress: 100 });
+            } : undefined;
+            const resource = await EditorSplatResource.create(this.app.graphicsDevice, source, reorder, onPhase);
             const asset = this.createGSplatAsset(resource, filename);
 
             return { asset, rotation: transform.rotation };
         } finally {
-            if (!animationFrame) {
-                this.events.fire('stopSpinner');
+            if (tracked) {
+                tracked.onProgress = null;
+            }
+            if (showProgress) {
+                this.events.fire('progressEnd');
             }
         }
     }

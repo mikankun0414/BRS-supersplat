@@ -1,5 +1,7 @@
 .claude
-.cursor
+.cursor/**
+!.cursor/skills/
+!.cursor/skills/**
 .DS_Store
 .idea
 .npmrc

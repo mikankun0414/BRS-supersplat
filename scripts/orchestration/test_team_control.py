@@ -23,8 +23,17 @@ class RoutingTests(unittest.TestCase):
         # Codex gate tests must not pass through a fallback provider.
         self.codex_only=dict(self.config, candidates=[c for c in self.config['candidates'] if c['agent']=='codex'])
 
-    def test_lightweight_for_routine_task(self):
-        self.assertEqual(t.choose(self.data,self.config)['model'],'gpt-6-luna')
+    def test_normal_development_prefers_grok_without_fast_variant(self):
+        route = t.choose(self.data, self.config)
+        self.assertEqual((route['agent'], route['model']), ('cursor', 'grok-4.7-high'))
+        grok = next(c for c in self.config['candidates'] if c['model'] == 'grok-4.7-high')
+        self.assertIn('STANDARD', grok['classes'])
+        self.assertNotIn('FAST', grok['classes'])
+        self.assertNotIn('-fast', route['model'])
+
+    def test_lightweight_iteration_prefers_luna(self):
+        self.assertEqual(t.choose(self.data, self.config, 'FAST', 'coder')['model'], 'gpt-6-luna')
+        self.assertEqual(t.choose(self.data, self.config, 'FAST', 'research')['model'], 'gpt-6-luna')
 
     def test_quota_closed_and_no_auto_upgrade(self):
         self.data['providers']['codex']['windows'][0]['used_percent']=98
@@ -32,6 +41,7 @@ class RoutingTests(unittest.TestCase):
 
     def test_expiring_underused_short_window_prioritized(self):
         config=copy.deepcopy(self.config)
+        config.pop('routing_preferences', None)
         c=copy.deepcopy(config['candidates'][0]); c.update(agent='cursor',model='composer-2.5',origin='cursor')
         config['candidates'].insert(0,c)
         self.data['providers']['cursor']['windows']=[{'window':'monthly','used_percent':55,
@@ -106,15 +116,16 @@ class RoutingTests(unittest.TestCase):
         reset = (t.now() + dt.timedelta(hours=1)).isoformat()
         status={'userStatus':{'cascadeModelConfigData':{'clientModelConfigs':[
             {'modelId':'gemini-3.8-flash-high','quotaInfo':{'resetTime':reset}},
-            {'modelId':'claude-sonnet-4-6','quotaInfo':{'remainingFraction':1,'resetTime':reset}}]}}}
+            {'modelId':'claude-sonnet-5-5-high','quotaInfo':{'remainingFraction':1,'resetTime':reset}}]}}}
         provider=antigravity_quota.parse_status(status,t.now().timestamp()*1000)
         self.assertEqual(provider['models']['gemini-3.8-flash-high'][0]['used_percent'],100)
-        self.assertEqual(provider['models']['claude-sonnet-4-6'][0]['used_percent'],0)
+        self.assertEqual(provider['models']['claude-sonnet-5-5-high'][0]['used_percent'],0)
         self.data['providers']['antigravity']=provider
         result=t.choose(self.data,self.config,role='reviewer',exclude_origin='openai')
-        self.assertEqual((result['agent'],result['model']),('antigravity','claude-sonnet-4-6'))
+        self.assertEqual((result['agent'],result['model']),('cursor','claude-opus-5-5-high'))
         rejected={r['model']:r['reason'] for r in result['rejected']}
         self.assertNotIn('provider auth', rejected['gemini-3.8-flash-high'])
+        self.assertIn('claude-sonnet-5-5-high', {item['model'] for item in result['alternatives']})
 
     def test_antigravity_unreachable_is_unknown(self):
         self.assertEqual(antigravity_quota.parse_status({},1)['status'],'unknown')

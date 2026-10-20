@@ -138,13 +138,78 @@ class ProjectBoardTests(ProjectStateCase):
         self.assertIn('API方針', self.moves[-1][1])
 
     def test_explicit_action_that_cannot_record_exits_2(self):
-        for argv in (['board', 'review', '--run', 'run_a'],
+        for argv in (['board', 'review', '--run', 'run_a', '--no-change', 'question answered'],
                      ['board', 'pending', '--run', 'run_a', '--reason', 'r'],
                      ['board', 'failed', '--run', 'run_a', '--reason', 'r']):
             with self.subTest(argv=argv), \
                  patch.object(t, 'board_set', return_value={'moved': False, 'reason': 'workspace card not found'}), \
                  patch.object(sys, 'argv', ['team_control.py', *argv]):
                 self.assertEqual(t.main(), 2)
+
+    def test_review_needs_finish_check_or_no_change_reason(self):
+        bad = Path(self.tmp.name) / 'bad.json'
+        bad.write_text('{"target": "x"}', encoding='utf-8')
+        for argv in (['board', 'review', '--run', 'run_a'],
+                     ['board', 'review', '--run', 'run_a', '--no-change', ' '],
+                     ['board', 'review', '--run', 'run_a', '--task-file', str(bad)]):
+            self.moves = []
+            with self.subTest(argv=argv), patch.object(t, 'board_set', side_effect=self.fake_set), \
+                 patch.object(sys, 'argv', ['team_control.py', *argv]):
+                self.assertEqual(t.main(), 2)
+                self.assertEqual(self.moves, [])
+        with patch.object(t, 'board_set', side_effect=self.fake_set), \
+             patch.object(sys, 'argv', ['team_control.py', 'board', 'review', '--run', 'run_a',
+                                        '--no-change', 'consultation only']):
+            self.assertEqual(t.main(), 0)
+        self.assertEqual(self.moves[-1][0], 'in-review')
+
+    def passing_task_file(self):
+        root = Path(self.tmp.name)
+        (root / '.ai/reports').mkdir(parents=True, exist_ok=True)
+        (root / '.ai/reports/r.md').write_text('no findings', encoding='utf-8')
+        task = {'target': 'a', 'change': 'b', 'constraints': 'c', 'ownership': 'd',
+                'acceptance': 'e', 'role': 'coder', 'important': False,
+                'lead': {'agent': 'cursor', 'model': 'composer-2.5', 'origin': 'cursor'},
+                'review': {'reports': [{'agent': 'codex', 'model': 'gpt-6.1-sol',
+                                        'origin': 'openai', 'path': '.ai/reports/r.md'}]}}
+        good = root / 'good.json'
+        good.write_text(__import__('json').dumps(task), encoding='utf-8')
+        return good
+
+    def test_review_with_passing_task_file_moves(self):
+        good = self.passing_task_file()
+        with patch.object(t, 'ROOT', Path(self.tmp.name)), \
+             patch.object(t, 'board_set', side_effect=self.fake_set), \
+             patch.object(sys, 'argv', ['team_control.py', 'board', 'review', '--run', 'run_a',
+                                        '--task-file', str(good)]):
+            self.assertEqual(t.main(), 0)
+        self.assertEqual(self.moves[-1][0], 'in-review')
+
+    def test_no_change_review_says_no_change_on_the_card(self):
+        with patch.object(t, 'board_set', side_effect=self.fake_set), \
+             patch.object(sys, 'argv', ['team_control.py', 'board', 'review', '--run', 'run_a',
+                                        '--no-change', '質問に回答']):
+            self.assertEqual(t.main(), 0)
+        self.assertIn('変更なし: 質問に回答', self.moves[-1][1])
+        self.assertNotIn('AI作業完了', self.moves[-1][1])
+
+    def cli_sync(self, *extra):
+        t.write_board_state('run_a', 'launch', 'in-progress', None)
+        with patch.object(t, 'run_workers', return_value=[worker('succeeded')]), \
+             patch.object(t, 'record_results', return_value=0), \
+             patch.object(t, 'ROOT', Path(self.tmp.name)), \
+             patch.object(t, 'board_set', side_effect=self.fake_set), \
+             patch.object(sys, 'argv', ['team_control.py', 'board', 'sync', '--run', 'run_a', *extra]):
+            return t.main()
+
+    def test_cli_sync_without_finish_check_stays_in_progress(self):
+        self.cli_sync()
+        self.assertEqual(self.moves[-1][0], 'in-progress')
+        self.assertIn('完了チェック待ち', self.moves[-1][1])
+
+    def test_cli_sync_with_finish_check_reaches_review(self):
+        self.cli_sync('--task-file', str(self.passing_task_file()))
+        self.assertEqual(self.moves[-1][0], 'in-review')
 
     def test_sync_keeps_another_runs_question_in_the_note(self):
         t.write_board_state('run_q', 'explicit-pending', 'user-pending', 'API方針')

@@ -48,6 +48,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(event['assigned'], {'agent': 'claude'})
         self.assertEqual(event['fallback_reason'], ['provider auth or quota unavailable'])
         self.assertEqual(event['launch_state'], 'ready')
+        self.assertEqual(event['workflow'], {'mode': 'normal'})
 
     def test_failed_launch_is_recorded_as_launch_failed(self):
         task = t.read_json(FIX / 'smoke.json')

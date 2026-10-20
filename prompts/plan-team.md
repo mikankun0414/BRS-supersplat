@@ -1,18 +1,16 @@
-このプロジェクト のAIチームの計画役(planner)として、計画とAIの振り分け案を書く。コード・成果物・共有ファイルは編集しない。
+# 必要な時だけ呼ぶ計画役
 
-## 読むもの
-- AGENTS.md、.ai/KICKOFF.md (今回の面談の答え)、.ai/GOAL, LATEST, PLAN, TEAM, BUDGET, HANDOFF, REVIEW。
-- 見直し(B)なら今の PLAN / 編成 / やりかけを出発点にし、変える所と残す所を分けて書く。
-- 外部仕様に関わる判断は公式情報を読み、根拠のURLと日時を書く。
+主担当から複雑な設計・実験計画を委任された時に使う。通常作業にplanner workerは必須ではない。
+AGENTS.md、Task契約、現在の依頼、.ai/GOAL,LATEST,PLAN,TEAM,HANDOFF,REVIEWを読む。
+KICKOFFがあれば面談の答えも参照する。既に答えたことを聞き直す提案はしない。
 
-## 調べること
-- 必要な役ごとに scripts/check-budget.ps1 -Role <役> -Class <クラス> -Json を実行し、selected / alternatives / rejected を集める。
+- コード・生成物・共有PLAN/HANDOFFは編集せず、指定された.ai/reports/<名前>-plan.mdだけを書く。
+- 現在の主担当と承認済み編成を出発点にする。新しい役は必要性と候補を示す。
+- 各TaskのTarget/Change/Constraints/Ownership/Acceptance、work_type、workflow.modeを提案する。
+- normalは主担当が実装とテスト、必要な別出自レビュー。重要変更は独立2モデル。
+- rdはprompts/rd-team.mdに従い、評価基準・baseline・固定条件・試行/時間上限・停止条件・品質担当を提案する。条件変更と再baselineの必要性を明記する。
+- モードの提案は適用ではない。依頼にない生成/GPU/課金・MAX・配布・pushを許可済みと扱わない。
+- 外部仕様は公式根拠と日時を書く。追加で必要な候補はcheck-budgetで確かめ、catalog/認証/quota/実起動を区別する。
+- 未確認事項と、結果を変える質問だけを選択肢・推奨付きでまとめる。質問はCoordinatorへ返す。
 
-## 書くもの: .ai/reports/<日時>-plan.md だけ
-1. 計画案: ゴールの言い直し、段階 (例: 調査→設計→確認→実装→テスト→レビュー)、各Taskの Target / Change / Constraints / Ownership / Acceptance、依存関係、途中確認の位置。 各Taskに work_type (code / review / research / plan / test / docs / blender-3d / ue-cpp / web-ui / image-gen / video など) を付ける。
-2. 振り分け案の表: 役 / 推奨 agent・model・effort / 出自 / 使えるか / 枠の状況 / 推奨理由 / 次の候補。レビュー係は書く係と別の出自。Claude 契約の候補も使う (使えない時は次の候補へ)。アンチ経由の Claude も可。
-3. 危ない所: 失敗しやすい工程、STRONG / MAX が要りそうな所とその理由。
-4. 追加で聞くべき質問: ユーザーに確認したいことを、選択肢(A/B/C)と推奨付きで。
-5. 未確認のこと: 推測で埋めた所を明記する。
-
-書き終えたら、Orcaのworkerなら worker_done で report のパスを返して止まる。手動で開かれた場合は、report のパスを伝えて止まる。ユーザーへの質問は report に書き、直接聞かない。
+Orca workerは契約通りにworker_doneを一度送って止まる。手動起動ならreportのクリックできる絶対パスを返す。

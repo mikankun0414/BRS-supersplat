@@ -1,0 +1,32 @@
+{
+  "title": "R&D contract example; copy and customize before use",
+  "template": true,
+  "role": "research",
+  "class": "STANDARD",
+  "work_type": "research",
+  "target": "An explicitly authorized artifact or experiment",
+  "change": "Run one authorized comparison and report evidence to the lead",
+  "constraints": "Example only. Preserve originals. No generation or GPU work without task authorization.",
+  "ownership": "Worker owns only its named report and new iteration output directory",
+  "lead": {"agent": "Replace with the lead agent", "model": "Replace with the lead model", "origin": "Replace with the lead origin"},
+  "important": false,
+  "review": {"reports": [], "skip_reason": "Replace with: measurement only, no code change (or add review reports)"},
+  "quality": {"agent": "Replace with the quality agent", "model": "Replace with the quality model", "origin": "Replace with the quality origin", "status": "UNREVIEWED", "report": "Replace with .ai/reports/<quality report>"},
+  "acceptance": "Report exact inputs, outputs, fixed conditions, metrics and unverified quality; no automatic pass",
+  "workflow": {
+    "mode": "rd",
+    "approval": "Replace with the date and the user's words that started R&D and confirmed the models",
+    "team": {
+      "lead": {"agent": "Replace with the lead agent", "model": "Replace with the lead model", "origin": "Replace with the lead origin"},
+      "quality": {"agent": "Replace with the quality agent (another origin)", "model": "Replace with the quality model", "origin": "Replace with the quality origin"}
+    },
+    "criteria": ["Replace with observable acceptance thresholds agreed with the user"],
+    "baseline": "Replace with the reference artifact and its hash, or the first-baseline plan",
+    "controls": ["Replace with fixed camera, resolution, data, seed, hardware and quality budget as applicable"],
+    "max_iterations": 3,
+    "max_minutes": 60,
+    "iterations_used": 0,
+    "minutes_used": 0,
+    "stop_conditions": ["Two consecutive iterations without improvement", "Repeated defect or conflicting evidence requires user judgment"]
+  }
+}

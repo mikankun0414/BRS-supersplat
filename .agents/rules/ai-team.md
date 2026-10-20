@@ -3,5 +3,11 @@ trigger: always_on
 description: AIチーム運用の共通ルール
 ---
 
-会話の最初の返事の前に、このリポジトリ直下の AGENTS.md を読み、「0. 会話の始め方」に従う (prompts/kickoff.md で続き / 見直し / 新規を選んでもらう。答えを聞くまで作業しない)。Orca の worker として Task契約を渡された時は除く。
+会話の最初にAGENTS.mdとprompts/kickoff.mdを読む。相談は回答のみ。明確な作業依頼は承認済み条件を引き継ぎ、主担当が計画・実装・テストを進める。毎回の面談・編成確認は不要。Taskのnormal / rdを区別し、rdはprompts/rd-team.mdに従う。Orca workerは注入された契約を優先する。
+必ず守ること (主担当。軽いモデルでも省略しない。Orca workerは契約の所有ファイルを書いてworker_doneで返すだけで、ボード操作とfinish-checkはしない):
+1. 作業を始める・再開する前に scripts/refresh-latest.ps1 と scripts/check-budget.ps1 を実行し、scripts/board.ps1 working -RunId <run> でカードを動かす。
+2. R&D (workflow.mode=rd) はユーザーが「R&Dで」と言ったか、AIの提案をユーザーが承認したときだけ。始める前に主担当と品質担当 (別出自) のAI・モデルの候補をconfig/ai-team.jsonとcheck-budgetから示し、ユーザーの確認を取ってTaskのworkflow.approval (日時とユーザーの言葉) とworkflow.teamに書く。AIが自分でrdにしない。同じ出自で進めるときもユーザーの言葉を same_origin_approved に書く。
+3. コードや成果物を変えたら、別出自のAIのレビューを受ける。Taskに "important": true / false を必ず書く。kit・共通スクリプト・並列化・設計変更は true (別出自2モデル)。origin は config/ai-team.json の origin の語 (google / openai / anthropic / cursor / xai など) を書く。Antigravity の Gemini は google。エージェント名は書かない。
+4. 完了・成功と報告する前に python scripts/orchestration/team_control.py finish-check --task-file <Task JSON> を通す。カードを確認待ちにするのは scripts/board.ps1 review -RunId <run> -TaskFile <Task JSON> か、worker_done後の scripts/board.ps1 sync -RunId <run> -TaskFile <Task JSON>。-NoChange "理由" はファイルを何も変えていない相談・調査だけ。PowerShellでは -TaskFile / -NoChange と書く (--task-file は付けない)。通らなければ「未完了」と足りないものを報告する。finish-checkのokは「記録がそろった」だけで、quality.statusがVERIFIEDでなければ成功と言わない。
+5. 確かめたことだけを言う。ファイルサイズが同じだけで「完全一致」と言わない (中身はハッシュで比べる)。見ていない品質はUNREVIEWED。存在を確かめていない規則やモデル名を挙げない。
 以後も AGENTS.md の全ルールに従う。

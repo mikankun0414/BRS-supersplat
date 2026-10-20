@@ -2,11 +2,13 @@
   "title": "Kickoff plan and AI assignment",
   "class": "STRONG",
   "role": "planner",
+  "work_type": "plan",
+  "workflow": {"mode": "normal"},
   "assigned": {"agent": "codex", "model": "gpt-6.1-sol"},
   "external_dependency": false,
-  "target": ".ai/KICKOFF.md and the shared .ai state files",
+  "target": "The current request and .ai state; read KICKOFF.md only if it exists",
   "change": "Follow prompts/plan-team.md and write the plan, the AI assignment table and follow-up questions to one new .ai/reports/<timestamp>-plan.md.",
   "constraints": "Do not edit code, artwork, shared .ai files or config. Do not generate media, use GPU, launch workers or commit.",
   "ownership": "Only the new report file named in the change.",
-  "acceptance": "The report has all five sections of prompts/plan-team.md. Return its path and explicit succeeded/failed in authoritative worker_done, then idle."
+  "acceptance": "Propose concrete Task contracts, normal/rd modes, necessary roles, evidence and limits, and unresolved questions per prompts/plan-team.md. Return report path and explicit succeeded/failed in authoritative worker_done, then idle."
 }

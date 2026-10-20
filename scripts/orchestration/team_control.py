@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from scripts.orchestration.budget_scheduler import evaluate_budget
 from scripts.orchestration import antigravity_quota
+from scripts.orchestration.workflow import finish_check, workflow_contract
 UTC = dt.timezone.utc
 CLASSES = ('FAST', 'STANDARD', 'STRONG', 'MAX')
 
@@ -255,6 +256,17 @@ def model_provider(data, candidate):
     windows = provider.get('models', {}).get(candidate['model'])
     return {**provider, 'windows': windows} if windows else provider
 
+def preference_rank(config, task_class, role, candidate):
+    """Approved first choice for this class and role sorts first. Unlisted models tie after them."""
+    prefs = config.get('routing_preferences') or []
+    for index, pref in enumerate(prefs):
+        if pref.get('class') != task_class or role not in pref.get('roles', ()):
+            continue
+        if pref.get('agent') == candidate.get('agent') and pref.get('model') == candidate.get('model'):
+            return index
+    return len(prefs)
+
+
 def choose(data, config, task_class='STANDARD', role='coder', exclude_origin=None, max_reason=None,
            task_minutes=30, important=False, pinned=None):
     if task_class not in CLASSES:
@@ -300,9 +312,10 @@ def choose(data, config, task_class='STANDARD', role='coder', exclude_origin=Non
             rejected.append({'agent': c['agent'], 'model': c['model'], 'reason': reason,
                              'budget_state':budget if budget.get('blocked') else None})
             continue
-        # Fit first, then expiring underused budgets, upper-window safety, diversity.
-        candidates.append((-c.get('suitability', {}).get(role, 1), -budget['score'], index, c, budget))
-    candidates.sort(key=lambda item: item[:3])
+        # Approved route first, then fit, then expiring underused budgets, upper-window safety, diversity.
+        rank = preference_rank(config, task_class, role, c)
+        candidates.append((rank, -c.get('suitability', {}).get(role, 1), -budget['score'], index, c, budget))
+    candidates.sort(key=lambda item: item[:4])
     if not candidates and pinned:
         # The assigned AI is temporarily unusable (expired sign-in, closed quota...).
         # Move to the next eligible candidate for the same role and say why.
@@ -310,14 +323,14 @@ def choose(data, config, task_class='STANDARD', role='coder', exclude_origin=Non
         return {**result, 'assigned_unavailable': {'assigned': pinned, 'rejected': rejected}}
     if not candidates:
         return {'blocked': True, 'class': task_class, 'role': role, 'reason': 'no eligible candidate in class', 'rejected': rejected}
-    _, _, _, c, budget = candidates[0]
+    _, _, _, _, c, budget = candidates[0]
     used = max(w['used_percent'] for w in model_provider(data, c)['windows'])
     return {'blocked': False, 'class': task_class, 'role': role,
             **{key: c.get(key) for key in ('agent', 'model', 'effort', 'origin')},
             'selected': {key:c.get(key) for key in ('agent','model','effort')},
             'used_percent': used, 'launch_verified': False, 'budget_reason': budget['reason'],
             'budget_state': budget, 'alternatives': [
-                {key:item[3].get(key) for key in ('agent','model','effort')} | {'budget_reason':item[4]['reason']}
+                {key:item[4].get(key) for key in ('agent','model','effort')} | {'budget_reason':item[5]['reason']}
                 for item in candidates[1:]], 'rejected': rejected}
 
 def jev(mode, state_path, model='jev-latest'):
@@ -351,12 +364,17 @@ def jev(mode, state_path, model='jev-latest'):
         return {'skipped': True, 'reason': 'api_unavailable', 'requires_coordinator_decision': True}
 
 def task_spec(task, rules=()):
-    for field in ('target', 'change', 'constraints', 'ownership', 'acceptance'):
+    workflow = workflow_contract(task)
+    for field in ('target', 'change', 'constraints', 'ownership', 'acceptance', 'role'):
         if not isinstance(task.get(field), str) or not task[field].strip():
             raise ValueError('Task requires nonempty ' + field)
     state = '\n'.join(f'{field.title()}: {task[field]}' for field in ('target', 'change', 'constraints', 'ownership', 'acceptance'))
     project_rules = ' '.join(r.strip() for r in rules if r.strip())
     return ('Read AGENTS.md and .ai/{GOAL,LATEST,PLAN,HANDOFF,REVIEW}.md first.\n' + state +
+        '\nWorkflow contract: ' + json.dumps(workflow, ensure_ascii=False) +
+        '\nRead prompts/rd-team.md for rd mode, prompts/run-team.md for normal mode. '
+        'Unobserved visual quality is UNREVIEWED. This contract is not permission to generate, '
+        'spend, overwrite, publish, or extend iteration limits. Follow Task ownership and acceptance. ' +
         '\nUse the authoritative injected Task/Dispatch preamble. ' + (project_rules + ' ' if project_rules else '') +
         'Report tests, modified files, unverified results and next step. '
         'Show every output file as a clickable absolute path. Do not launch additional workers.')
@@ -402,7 +420,8 @@ def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
     receipt = cli(argv, timeout=150)
     # Preserve full unknown/failed receipts. Never retry a launch automatically.
     path = ROOT / '.ai/runtime/dispatches' / (uuid.uuid4().hex + '.json')
-    save_json(path, {'at': now().isoformat(), 'route': route, 'argv': argv, 'receipt': receipt})
+    save_json(path, {'at': now().isoformat(), 'route': route, 'argv': argv, 'receipt': receipt,
+                     'workflow': workflow_contract(task)})
     started = bool(receipt.get('ok') and receipt.get('exit_code') == 0 and
                    receipt.get('result', {}).get('state') == 'ready')
     result = {'started': started, 'receipt_path': str(path), 'receipt': receipt, 'route': route, 'argv': argv,
@@ -413,6 +432,7 @@ def dispatch(task, route, run_id, execute=False, coordinator_handle=None):
     dispatch_id = info.get('dispatchId') or 'launch-' + path.stem
     history_append({'event': 'start', 'dispatch_id': dispatch_id, 'task_id': info.get('taskId'), 'run_id': run_id,
                     'title': task.get('title'), 'work_type': kind, 'work_type_guessed': guessed,
+                    'workflow': workflow_contract(task),
                     'role': route.get('role', task.get('role')), 'class': route.get('class', task.get('class')),
                     'assigned': (fallback or {}).get('assigned', task.get('assigned')),
                     'used': {k: route.get(k) for k in ('agent', 'model', 'effort', 'origin')},
@@ -746,16 +766,16 @@ def fixed_findings(path):
         data = json.loads(text)
     except ValueError:
         sections = re.split(r'(?m)^###\s+', text)[1:]
-        states = [re.search(r'(?im)^\s*(?:status|状態)\s*[:：]\s*(FIXED|OPEN|UNFIXED)\s*$', s) for s in sections]
+        states = [re.search(r'(?im)^\s*(?:status|状態)\s*[:：]\s*(FIXED|VERIFIED|OPEN|UNFIXED|UNREVIEWED|FIXED_PENDING_QC)\s*$', s) for s in sections]
         if any(states):
-            return sum(bool(m and m.group(1).upper() == 'FIXED') for m in states)
+            return sum(bool(m and m.group(1).upper() in ('FIXED', 'VERIFIED')) for m in states)
         items = re.findall(r'(?m)^\s*- \[([xX ])\] ', text)
         return sum(mark.lower() == 'x' for mark in items) if items else None
     findings = data.get('findings') if isinstance(data, dict) else data
     if not isinstance(findings, list):
         return None
-    return sum(isinstance(f, dict) and (f.get('fixed') is True or str(f.get('status', '')).lower() == 'fixed')
-               for f in findings)
+    return sum(isinstance(f, dict) and (str(f['status']).lower() in ('fixed', 'verified')
+               if 'status' in f else f.get('fixed') is True) for f in findings)
 
 
 def suggest_rating(run_id, report=None):
@@ -919,6 +939,35 @@ def board_review(note=None, run_id=None):
     return result
 
 
+def config_origins():
+    """Origins named in config/ai-team.json; None when no config is readable."""
+    try:
+        return {c['origin'].strip().lower() for c in load_config().get('candidates', [])
+                if isinstance(c, dict) and isinstance(c.get('origin'), str)} or None
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def run_finish_check(task_file, root=None):
+    return finish_check(read_json(task_file), root or ROOT, config_origins(), task_file)
+
+
+GATE_HELP = ('PowerShell: scripts/board.ps1 <review|sync> -RunId <run> -TaskFile <Task JSON> '
+             '(変更なしの相談・調査だけなら -NoChange "理由")。'
+             'Python: --task-file <Task JSON> / --no-change "理由"')
+
+
+def review_gate(task_file, no_change):
+    """Moving the card to In review needs a passing finish-check, or a stated no-change reason."""
+    if task_file:
+        check = run_finish_check(task_file)
+        return {'blocked': not check['ok'], 'finish_check': check,
+                'reason': '' if check['ok'] else 'finish-check を通らないので In review にしない'}
+    if isinstance(no_change, str) and no_change.strip():
+        return {'blocked': False, 'no_change': no_change.strip()}
+    return {'blocked': True, 'reason': 'In review にするには完了チェックが必要。' + GATE_HELP}
+
+
 def board_working(run_id):
     require_board_run(run_id, 'working')
     with board_lifecycle_lock():
@@ -940,12 +989,15 @@ def board_failed(reason, run_id):
     return result
 
 
-def board_sync(run_id):
+def board_sync(run_id, review_ok=True):
     require_board_run(run_id, 'sync')
     sync_started_at = now()
     workers = run_workers(run_id)
     recorded = record_results(workers)
     status, note = board_status(workers)
+    if status == 'in-review' and not review_ok:
+        # Workers finished, but the change has not passed finish-check yet.
+        status, note = 'in-progress', note.replace('人の確認待ち', '完了チェック待ち')
     pagination_reason = getattr(workers, 'reason', None)
     if pagination_reason:
         status, note = 'in-progress', pagination_reason
@@ -1017,6 +1069,11 @@ def main():
     d = sub.add_parser('start'); d.add_argument('--task-file', required=True); d.add_argument('--run', required=True)
     d.add_argument('--from', dest='coordinator_handle')
     d.add_argument('--execute', action='store_true')
+    f = sub.add_parser('workflow', help='Validate a Task locally; does not start work or judge quality')
+    f.add_argument('--task-file', required=True)
+    fc = sub.add_parser('finish-check', help='Before reporting done: check review / R&D quality evidence is recorded')
+    fc.add_argument('--task-file', required=True)
+    fc.add_argument('--root', help='Base folder for relative report paths (default: project root)')
     w = sub.add_parser('board', help='Move this workspace card on the Orca Workspace Board')
     w.add_argument('action', choices=['sync', 'done', 'pending', 'review', 'working', 'failed'])
     w.add_argument('--run', help='Run id for sync or lifecycle bookkeeping')
@@ -1025,13 +1082,24 @@ def main():
     w.add_argument('--rate', action='append', default=[], help='dispatch_id=good|ok|bad; repeat for each AI')
     w.add_argument('--rating-source', choices=['ai-suggested', 'user'], default='user')
     w.add_argument('--note', default='')
+    w.add_argument('--task-file', help='review/sync: Task JSON that must pass finish-check')
+    w.add_argument('--no-change', help='review/sync: why there is no change to check (question / investigation only)')
     h = sub.add_parser('history')
     h.add_argument('action', choices=['suggest'])
     h.add_argument('--run', required=True)
     h.add_argument('--report')
     a = p.parse_args()
-    config = load_config()
-    if a.command == 'snapshot': result = snapshot(a.fetch_sources)
+    config = {} if a.command in ('workflow', 'finish-check') else load_config()
+    if a.command == 'workflow':
+        task = read_json(a.task_file)
+        task_spec(task)
+        result = {'valid': True, 'workflow': workflow_contract(task),
+                  'quality_status': 'UNREVIEWED', 'started': False}
+    elif a.command == 'finish-check':
+        result = run_finish_check(a.task_file, Path(a.root) if a.root else None)
+        if not result['ok']:
+            result['blocked'] = True
+    elif a.command == 'snapshot': result = snapshot(a.fetch_sources)
     elif a.command == 'budget':
         data = read_json(a.snapshot_file) if a.snapshot_file else snapshot(save=False) if a.no_save else snapshot()
         result = choose(data, config, a.task_class, a.role, a.exclude_origin, a.max_reason,
@@ -1041,11 +1109,19 @@ def main():
     elif a.command == 'history': result = suggest_rating(a.run, a.report)
     elif a.command == 'board':
         if a.action == 'sync':
-            result = board_sync(a.run)
+            # Workers finishing is not the change being done: In review needs the same gate as review.
+            gate = review_gate(a.task_file, a.no_change)
+            result = board_sync(a.run, review_ok=not gate.get('blocked'))
+            if gate.get('blocked'):
+                result['review_gate'] = gate
         elif a.action == 'pending':
             result = board_pending(a.reason, a.run)
         elif a.action == 'review':
-            result = board_review(a.note, a.run)
+            # A finished change reaches review only with its evidence recorded.
+            gate = review_gate(a.task_file, a.no_change)
+            note = ('変更なし: ' + gate['no_change'] + ('。' + a.note if a.note else '')
+                    if gate.get('no_change') else a.note)
+            result = gate if gate.get('blocked') else board_review(note, a.run)
         elif a.action == 'working':
             result = board_working(a.run)
         elif a.action == 'failed':
@@ -1103,6 +1179,9 @@ def main():
     return 0
 
 if __name__ == '__main__':
+    # Same output encoding as the PowerShell wrapper (python -X utf8) when run directly.
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     try:
         raise SystemExit(main())
     except (OSError, ValueError, KeyError, TimeoutError) as exc:

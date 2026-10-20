@@ -1,5 +1,5 @@
 import { CommandQueue } from './command-queue';
-import { EditOp, MultiOp } from './edit-ops';
+import { EditOp, MergeSplatsOp, MultiOp } from './edit-ops';
 import { Element } from './element';
 import { Events } from './events';
 import { Splat } from './splat';
@@ -11,7 +11,24 @@ const opReferencesElement = (op: EditOp, element: Element): boolean => {
         return op.ops.some(nestedOp => opReferencesElement(nestedOp, element));
     }
     // Check for splat property on the operation
-    return (op as any).splat === element;
+    if ((op as any).splat === element) {
+        return true;
+    }
+    if (Array.isArray((op as any).sources) && (op as any).sources.includes(element)) {
+        return true;
+    }
+    return false;
+};
+
+// Free off-scene resources owned by operations that are dropped when a splat is destroyed.
+// AddSplatOp.destroy() destroys its splat directly so it must not be called here, whereas
+// MergeSplatsOp.destroy() only frees inactive instance buffers and off-scene source layers.
+const destroyOpForRemovedSplat = (op: EditOp) => {
+    if (op instanceof MultiOp) {
+        op.ops.forEach(destroyOpForRemovedSplat);
+    } else if (op instanceof MergeSplatsOp) {
+        op.destroy();
+    }
 };
 
 class EditHistory {
@@ -151,7 +168,8 @@ class EditHistory {
 
             for (let i = 0; i < this.history.length; i++) {
                 const op = this.history[i];
-                // Skip ops referencing the element; don't destroy them since the caller handles that
+                // Skip ops referencing the element; don't destroy AddSplatOp since the caller handles that,
+                // but destroy MergeSplatsOp so its off-scene sources and inactive instance buffers are freed.
                 if (!opReferencesElement(op, element)) {
                     // Keep this operation
                     newHistory.push(op);
@@ -159,6 +177,8 @@ class EditHistory {
                     if (i < this.cursor) {
                         newCursor++;
                     }
+                } else {
+                    destroyOpForRemovedSplat(op);
                 }
             }
 

@@ -314,6 +314,11 @@ class Menu extends Container {
             icon: createSvg(selectSeparate),
             isEnabled: () => events.invoke('selection.splats'),
             onSelect: () => events.fire('edit.separate')
+        }, {
+            text: () => i18n.t('menu.edit.merge'),
+            icon: createSvg(collapseSvg),
+            isEnabled: () => events.invoke('selection.canMerge'),
+            onSelect: () => events.fire('edit.merge')
         }]);
 
         const selectionMenuPanel = new MenuPanel([{

@@ -81,6 +81,7 @@ const popupConfig: Record<string, CategoryConfig> = {
             { id: 'tool.sphereBrushSelection', localeKey: 'popup.shortcuts.sphere-brush-selection' },
             { id: 'tool.floodSelection', localeKey: 'popup.shortcuts.flood-selection' },
             { id: 'tool.eyedropperSelection', localeKey: 'popup.shortcuts.eyedropper-selection' },
+            { id: 'tool.cloneStamp', localeKey: 'popup.shortcuts.clone-stamp' },
             { id: 'tool.deactivate', localeKey: 'popup.shortcuts.deactivate-tool' },
             { id: 'tool.toggleCoordSpace', localeKey: 'popup.shortcuts.toggle-gizmo-coordinate-space' }
         ],
@@ -89,7 +90,8 @@ const popupConfig: Record<string, CategoryConfig> = {
             { displayKey: 'Alt + Wheel', localeKey: 'popup.shortcuts.brush-size' },
             { displayKey: 'Enter', localeKey: 'popup.shortcuts.close-polygon' },
             { displayKey: 'Backspace', localeKey: 'popup.shortcuts.remove-last-polygon-point' },
-            { displayKey: 'Backspace', localeKey: 'popup.shortcuts.remove-tool-point' }
+            { displayKey: 'Backspace', localeKey: 'popup.shortcuts.remove-tool-point' },
+            { displayKey: 'Alt + Click', localeKey: 'popup.shortcuts.clone-stamp-source' }
         ]
     },
     playback: {

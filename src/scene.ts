@@ -454,7 +454,7 @@ class Scene {
     private pendingRemovals = new Set<Element>();
 
     // add a scene element
-    async add(element: Element) {
+    async add(element: Element, index?: number) {
         if (element.scene === this && this.pendingRemovals.has(element)) {
             // re-added while the earlier add is still in flight: cancel the
             // deferred removal and let that add register it
@@ -475,13 +475,21 @@ class Scene {
                 return;
             }
 
-            this.elements.push(element);
+            if (index !== undefined && index >= 0 && index <= this.elements.length) {
+                this.elements.splice(index, 0, element);
+            } else {
+                this.elements.push(element);
+            }
 
             // notify all elements of scene addition
             this.forEachElement(e => e !== element && e.onAdded(element));
 
-            // notify listeners
-            this.events.fire('scene.elementAdded', element);
+            // notify listeners (pass the following list element so UI lists can preserve order on insert)
+            const insertPos = this.elements.indexOf(element);
+            const nextListElement = this.elements.slice(insertPos + 1).find(
+                e => e.type === ElementType.splat || e.type === ElementType.model
+            );
+            this.events.fire('scene.elementAdded', element, nextListElement);
         }
     }
 

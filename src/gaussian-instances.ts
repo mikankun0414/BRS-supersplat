@@ -61,18 +61,19 @@ class DirtySpan {
 // keep the counts current, then flush() uploads to the GPU mirrors.
 class GaussianInstances {
     count: number;
+    numRows: number;
 
     // instance -> static row
-    readonly sourceRow: Uint32Array;
+    sourceRow: Uint32Array;
     // selected = 1, locked = 2 (a byte view over flagWords)
-    readonly flags: Uint8Array;
+    flags: Uint8Array;
     // transform palette index in the low 16 bits, colour palette index in the high
-    readonly palette: Uint32Array;
+    palette: Uint32Array;
 
     // gpu mirrors, indexed by instance. flags are read as packed u32 words
-    readonly instanceSource: StorageBuffer;
-    readonly instanceFlags: StorageBuffer;
-    readonly instancePalette: StorageBuffer;
+    instanceSource: StorageBuffer;
+    instanceFlags: StorageBuffer;
+    instancePalette: StorageBuffer;
 
     // counts, maintained incrementally by mutate()
     numSelected = 0;
@@ -81,7 +82,8 @@ class GaussianInstances {
     // user has deleted
     numRemoved = 0;
 
-    private readonly flagWords: Uint32Array;
+    private device: GraphicsDevice;
+    private flagWords: Uint32Array;
     private readonly flagSpan = new DirtySpan();
     private readonly paletteSpan = new DirtySpan();
     private readonly sourceSpan = new DirtySpan();
@@ -90,7 +92,9 @@ class GaussianInstances {
     // `initialFlags` is the state column loaded from file (may be shorter than
     // the row count if the file carried none)
     constructor(device: GraphicsDevice, numRows: number, initialFlags?: Uint8Array) {
+        this.device = device;
         this.count = numRows;
+        this.numRows = numRows;
 
         this.sourceRow = new Uint32Array(numRows);
         for (let i = 0; i < numRows; ++i) {
@@ -124,15 +128,17 @@ class GaussianInstances {
     //
     // Order is preserved because the source is in Morton order and the run
     // encoding of IndexRanges stays compact only while that holds.
-    static fromSubset(device: GraphicsDevice, source: GaussianInstances, ranges: IndexRanges) {
+    static fromSubset(device: GraphicsDevice, source: GaussianInstances, ranges: IndexRanges, numRows = source.numRows) {
         // Sized to the source layer's capacity, not to the subset. The new layer
         // shares the same static rows, so RestoreMissingInstancesOp will scan the
         // resource's full row count against it; sizing to `ranges.count` let that
         // run off the end of the arrays - count grew past their length, numRemoved
         // went negative and the tail read undefined. It also keeps the capacity a
         // layer has after a document round trip the same as the one it had before.
-        const capacity = source.sourceRow.length;
+        const staticRows = numRows ?? source.sourceRow.length;
+        const capacity = Math.max(source.sourceRow.length, ranges.count, staticRows);
         const result = new GaussianInstances(device, capacity);
+        result.numRows = staticRows;
         let dst = 0;
         ranges.forEachRun((start, count) => {
             const end = start + count;
@@ -143,7 +149,17 @@ class GaussianInstances {
             dst += count;
         });
         result.count = ranges.count;
-        result.numRemoved = capacity - ranges.count;
+
+        const referenced = new Uint8Array(staticRows);
+        let uniqueReferenced = 0;
+        for (let i = 0; i < result.count; ++i) {
+            const row = result.sourceRow[i];
+            if (row < staticRows && !referenced[row]) {
+                referenced[row] = 1;
+                uniqueReferenced++;
+            }
+        }
+        result.numRemoved = Math.max(0, staticRows - uniqueReferenced);
         result.markDirty(0, result.count);
         result.countsDirty = true;
         return result;
@@ -159,12 +175,24 @@ class GaussianInstances {
         flags: Uint8Array,
         palette: Uint32Array
     ) {
-        const result = new GaussianInstances(device, numRows);
+        const capacity = Math.max(numRows, sourceRow.length);
+        const result = new GaussianInstances(device, capacity);
+        result.numRows = numRows;
         result.sourceRow.set(sourceRow);
         result.flags.set(flags);
         result.palette.set(palette);
         result.count = sourceRow.length;
-        result.numRemoved = numRows - result.count;
+
+        const referenced = new Uint8Array(numRows);
+        let uniqueReferenced = 0;
+        for (let i = 0; i < sourceRow.length; ++i) {
+            const row = sourceRow[i];
+            if (row < numRows && !referenced[row]) {
+                referenced[row] = 1;
+                uniqueReferenced++;
+            }
+        }
+        result.numRemoved = Math.max(0, numRows - uniqueReferenced);
         result.countsDirty = true;
         return result;
     }
@@ -305,6 +333,40 @@ class GaussianInstances {
         this.countsDirty = true;
     }
 
+    private ensureCapacity(minCapacity: number) {
+        if (minCapacity <= this.sourceRow.length) return;
+        const newCapacity = Math.max(minCapacity, Math.ceil(this.sourceRow.length * 1.5));
+
+        const newSourceRow = new Uint32Array(newCapacity);
+        newSourceRow.set(this.sourceRow);
+
+        const newFlagWords = new Uint32Array(Math.ceil(newCapacity / 4));
+        newFlagWords.set(this.flagWords);
+        const newFlags = new Uint8Array(newFlagWords.buffer, 0, newCapacity);
+
+        const newPalette = new Uint32Array(newCapacity);
+        newPalette.set(this.palette);
+
+        const usage = BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC;
+        const newInstanceSource = new StorageBuffer(this.device, Math.max(4, newCapacity * 4), usage);
+        const newInstanceFlags = new StorageBuffer(this.device, Math.max(4, newFlagWords.length * 4), usage);
+        const newInstancePalette = new StorageBuffer(this.device, Math.max(4, newCapacity * 4), usage);
+
+        this.instanceSource.destroy();
+        this.instanceFlags.destroy();
+        this.instancePalette.destroy();
+
+        this.sourceRow = newSourceRow;
+        this.flagWords = newFlagWords;
+        this.flags = newFlags;
+        this.palette = newPalette;
+        this.instanceSource = newInstanceSource;
+        this.instanceFlags = newInstanceFlags;
+        this.instancePalette = newInstancePalette;
+
+        this.markDirty(0, this.count);
+    }
+
     // Append a clean instance for every static row nothing references, and
     // return how many were added. The arrays are sized to the row count and
     // instances reference distinct rows, so this cannot overflow; cloning will
@@ -312,7 +374,20 @@ class GaussianInstances {
     appendMissing(numRows: number): number {
         const present = new Uint8Array(numRows);
         for (let i = 0; i < this.count; ++i) {
-            present[this.sourceRow[i]] = 1;
+            const row = this.sourceRow[i];
+            if (row < numRows) {
+                present[row] = 1;
+            }
+        }
+
+        let missingCount = 0;
+        for (let row = 0; row < numRows; ++row) {
+            if (!present[row]) missingCount++;
+        }
+        if (missingCount === 0) return 0;
+
+        if (this.count + missingCount > this.sourceRow.length) {
+            this.ensureCapacity(this.count + missingCount);
         }
 
         const first = this.count;
@@ -328,7 +403,7 @@ class GaussianInstances {
 
         if (at > first) {
             this.count = at;
-            this.numRemoved -= at - first;
+            this.numRemoved = Math.max(0, this.numRemoved - (at - first));
             this.markDirty(first, at);
             this.countsDirty = true;
         }
@@ -366,7 +441,7 @@ class GaussianInstances {
         }
     }
 
-    private markDirty(lo: number, hi: number) {
+    markDirty(lo: number, hi: number) {
         this.flagSpan.add(lo, hi);
         this.paletteSpan.add(lo, hi);
         this.sourceSpan.add(lo, hi);

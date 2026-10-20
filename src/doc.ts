@@ -1,11 +1,12 @@
-import { ZipFileSystem, ZipReadFileSystem } from '@playcanvas/splat-transform';
 import type { Asset, Quat } from 'playcanvas';
 
-import { decodeInstances, encodeInstances, restorePalettes } from './doc-instances';
+import { decodeInstances, writeInstances, restorePalettes } from './doc-instances';
 import type { EditorSplatResource } from './editor-splat-resource';
 import { Events } from './events';
 import { GaussianInstances } from './gaussian-instances';
 import { BrowserFileSystem, BlobReadSource, loadSplatSource, sourcesOf } from './io';
+import { ZipReadFileSystem } from './io/read/zip-file-system';
+import { ZipFileSystem } from './io/write/zip-file-system';
 import { recentFiles } from './recent-files';
 import { Scene } from './scene';
 import { Splat } from './splat';
@@ -212,12 +213,14 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 currentSelection.getPivot(transform);
                 pivot.place(transform);
             }
+            return true;
         } catch (error) {
             await events.invoke('showPopup', {
                 type: 'error',
                 header: i18n.t('doc.load-failed'),
                 message: `'${error.message ?? error}'`
             });
+            return false;
         } finally {
             scene.suspendRender = false;
             scene.forceRender = true;
@@ -240,7 +243,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
     // identical view of the live one. Used when saving over the file the document
     // is open from, where the resources are then re-read from what was written
     // (see rebindDocument) and an undo must still find its rows.
-    const groupByResource = (splats: Splat[], compact: boolean) => {
+    const groupByResource = (splats: Splat[]) => {
         const groups: { resource: EditorSplatResource, layers: Splat[] }[] = [];
         const index = new Map<EditorSplatResource, number>();
         for (const splat of splats) {
@@ -253,56 +256,70 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             groups[at].layers.push(splat);
         }
 
-        return groups.map(({ resource, layers }) => {
-            const referenced = new Uint8Array(resource.numRows);
-            if (!compact) referenced.fill(1);
-            for (const layer of layers) {
-                const { sourceRow, count } = layer.instances;
-                for (let i = 0; i < count; ++i) {
-                    referenced[sourceRow[i]] = 1;
-                }
-            }
+        return groups;
+    };
 
-            // ascending, so the written order is the retained subsequence of the
-            // resource's own row order - which is morton order, and what the
-            // instance run encoding stays compact under
-            let numRows = 0;
-            for (let row = 0; row < referenced.length; ++row) {
-                if (referenced[row]) numRows++;
+    const resourceRows = ({ resource, layers }: { resource: EditorSplatResource, layers: Splat[] }, compact: boolean) => {
+        const referenced = new Uint8Array(resource.numRows);
+        if (!compact) referenced.fill(1);
+        for (const layer of layers) {
+            const { sourceRow, count } = layer.instances;
+            for (let i = 0; i < count; ++i) {
+                referenced[sourceRow[i]] = 1;
             }
-            const rows = new Uint32Array(numRows);
-            const rowMap = new Uint32Array(resource.numRows);
-            let at = 0;
-            for (let row = 0; row < referenced.length; ++row) {
-                if (referenced[row]) {
-                    rows[at] = row;
-                    rowMap[row] = at;
-                    at++;
-                }
+        }
+
+        // ascending, so the written order is the retained subsequence of the
+        // resource's own row order - which is morton order, and what the
+        // instance run encoding stays compact under
+        let numRows = 0;
+        for (let row = 0; row < referenced.length; ++row) {
+            if (referenced[row]) numRows++;
+        }
+        const rows = new Uint32Array(numRows);
+        const rowMap = compact ? new Uint32Array(resource.numRows) : null;
+        let at = 0;
+        for (let row = 0; row < referenced.length; ++row) {
+            if (referenced[row]) {
+                rows[at] = row;
+                if (rowMap) rowMap[row] = at;
+                at++;
             }
-            return { resource, layers, rows, rowMap };
-        });
+        }
+        return { rows, rowMap };
     };
 
     // returns the resource groups written, in resource file order, or null if
     // the save failed
     const saveDocument = async (options: { stream?: FileSystemWritableFileStream, filename?: string, compact?: boolean }) => {
         events.fire('startSpinner');
+        let zipFs: ZipFileSystem;
 
         try {
             const splats = events.invoke('scene.allSplats') as Splat[];
-            const groups = groupByResource(splats, options.compact ?? true);
+            const groups = groupByResource(splats);
 
-            // layer -> the resource file it reads from, and its remapped records
-            const layerInfo = new Map<Splat, { resource: number, records: ArrayBuffer }>();
-            groups.forEach((group, resourceIndex) => {
-                for (const layer of group.layers) {
-                    // remap into the compacted row numbering on a copy: the live
-                    // instance list must keep working after the save
-                    const records = encodeInstances(layer, group.rowMap);
-                    layerInfo.set(layer, { resource: resourceIndex, records });
+            const layerInfo = new Map<Splat, number>();
+            groups.forEach((group, index) => group.layers.forEach(layer => layerInfo.set(layer, index)));
+            const layerIndices = new Map(splats.map((splat, index) => [splat, index]));
+            const savedCounts: number[] = [];
+            const browserFs = new BrowserFileSystem(options.filename, options.stream);
+            const browserWriter = await browserFs.createWriter(options.filename);
+            zipFs = new ZipFileSystem(browserWriter);
+
+            // Keep only this resource's remap alive. Instance bytes are emitted
+            // directly; neither all-layer buffers nor all-resource maps survive.
+            for (let i = 0; i < groups.length; i++) {
+                const group = groups[i];
+                const { rows, rowMap } = resourceRows(group, options.compact ?? true);
+                savedCounts.push(rows.length);
+                await writeResourceFile(group.resource, rows, `resource_${i}.ply`, zipFs);
+                for (const splat of group.layers) {
+                    const writer = await zipFs.createWriter(`instances_${layerIndices.get(splat)}.bin`);
+                    await writeInstances(splat, rowMap, writer);
+                    await writer.close();
                 }
-            });
+            }
 
             const document = {
                 version: 1,
@@ -312,42 +329,25 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 timeline: events.invoke('docSerialize.timeline'),
                 resources: groups.map((group, i) => ({
                     filename: `resource_${i}.ply`,
-                    numRows: group.rows.length
+                    numRows: savedCounts[i]
                 })),
                 splats: splats.map((splat, i) => ({
                     ...splat.docSerialize(),
-                    resource: layerInfo.get(splat).resource,
+                    resource: layerInfo.get(splat),
                     instances: `instances_${i}.bin`
                 }))
             };
 
-            // Create browser filesystem and zip filesystem
-            const browserFs = new BrowserFileSystem(options.filename, options.stream);
-            const browserWriter = await browserFs.createWriter(options.filename);
-            const zipFs = new ZipFileSystem(browserWriter);
-
-            // Write document.json
             const docWriter = await zipFs.createWriter('document.json');
             await docWriter.write(new TextEncoder().encode(JSON.stringify(document)));
             await docWriter.close();
-
-            // Write each resource's static data once, verbatim
-            for (let i = 0; i < groups.length; ++i) {
-                await writeResourceFile(groups[i].resource, groups[i].rows, `resource_${i}.ply`, zipFs);
-            }
-
-            // Write each layer's instance list and palettes
-            for (let i = 0; i < splats.length; ++i) {
-                const writer = await zipFs.createWriter(`instances_${i}.bin`);
-                await writer.write(new Uint8Array(layerInfo.get(splats[i]).records));
-                await writer.close();
-            }
 
             // Close zip (also closes underlying browser writer)
             await zipFs.close();
 
             return groups;
         } catch (error) {
+            await zipFs?.abort().catch(() => {});
             await options.stream?.abort().catch(() => { /* the writer may already have aborted */ });
             await events.invoke('showPopup', {
                 type: 'error',
@@ -372,7 +372,10 @@ const registerDocEvents = (scene: Scene, events: Events) => {
         for (let i = 0; i < groups.length; ++i) {
             const { resource } = groups[i];
             if (!documentResources.has(resource)) continue;
-            const loaded = await loadSplatSource(`resource_${i}.ply`, zipFs, true);
+            // Rebinding replaces the backing file of data already resident on
+            // the GPU. Keep every row, including undo rows; an import preview
+            // subset would change row indices and cannot replace this source.
+            const loaded = await loadSplatSource(`resource_${i}.ply`, zipFs, true, undefined, count => Promise.resolve(count));
             await resource.rebind(loaded.source);
             rebound.add(resource);
         }
@@ -417,7 +420,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             return false;
         }
 
-        await loadDocument(file, handle);
+        if (!await loadDocument(file, handle)) return false;
 
         events.fire('doc.setName', file.name);
 
@@ -425,6 +428,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             documentFileHandle = handle;
             recentFiles.add({ handle, name: handle.name });
         }
+        return true;
     });
 
     events.function('doc.open', async () => {
@@ -450,7 +454,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                     const fileHandle = fileHandles[0];
 
                     // null file handle incase loadDocument fails
-                    await loadDocument(await fileHandle.getFile(), fileHandle);
+                    if (!await loadDocument(await fileHandle.getFile(), fileHandle)) return false;
 
                     // store file handle for subsequent saves
                     documentFileHandle = fileHandle;
@@ -477,7 +481,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 }
             }
 
-            await loadDocument(await fileHandle.getFile(), fileHandle);
+            if (!await loadDocument(await fileHandle.getFile(), fileHandle)) return false;
 
             // store file handle for subsequent saves
             documentFileHandle = fileHandle;
@@ -504,6 +508,11 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             } catch (error) {
                 if (error.name !== 'AbortError' && error.name !== 'NotAllowedError') {
                     console.error(error);
+                    await events.invoke('showPopup', {
+                        type: 'error',
+                        header: i18n.t('doc.save-failed'),
+                        message: `${error.message ?? error}`
+                    });
                 }
             }
         } else {

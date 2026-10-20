@@ -11,7 +11,6 @@ import {
     ReadFileSystem,
     ReadRequest,
     Transform,
-    ZipReadFileSystem,
     createChunkDataPool,
     getInputFormat,
     readFile,
@@ -19,6 +18,7 @@ import {
 } from '@playcanvas/splat-transform';
 
 import { createUniformSubsetSource } from './uniform-subset-source';
+import { ZipReadFileSystem } from './zip-file-system';
 
 type LoadResult = {
     source: ChunkSource;

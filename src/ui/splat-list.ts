@@ -185,14 +185,19 @@ class SplatList extends Container {
             id: 'splat-edit'
         });
 
-        events.on('scene.elementAdded', (element: Element) => {
+        events.on('scene.elementAdded', (element: Element, beforeElement?: Element) => {
             if (element.type !== ElementType.splat && element.type !== ElementType.model) {
                 return;
             }
 
             const sceneElement = element as SceneListElement;
             const item = new SplatItem(sceneElement.name, edit);
-            this.append(item);
+            const beforeItem = beforeElement ? items.get(beforeElement as SceneListElement) : undefined;
+            if (beforeItem) {
+                this.appendBefore(item, beforeItem);
+            } else {
+                this.append(item);
+            }
             items.set(sceneElement, item);
 
             if (sceneElement.type === ElementType.splat) {

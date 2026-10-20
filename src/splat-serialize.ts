@@ -1,10 +1,8 @@
 import {
     createChunkDataPool,
     logger as splatTransformLogger,
-    MemoryFileSystem,
     Transform,
     writeSource,
-    ZipFileSystem,
     type ChunkData,
     type ChunkDataPool,
     type ChunkLayer,
@@ -42,6 +40,8 @@ import type { EditorSplatResource } from './editor-splat-resource';
 import { Events } from './events';
 import { groupInstancesByChunk } from './gaussian-instances';
 import { PermutedChunkSource } from './io';
+import { StagingFileSystem } from './io/write/staging-file-system';
+import { ZipFileSystem } from './io/write/zip-file-system';
 import { SHRotation } from './sh-utils';
 import { Splat } from './splat';
 import { State } from './splat-state';
@@ -765,26 +765,23 @@ const serializeViewer = async (splats: Splat[], serializeSettings: SerializeSett
                 iterations: 10
             }, fs);
         } else {
-            // Package - write unbundled into a MemoryFileSystem, then ZIP
-            const memFs = new MemoryFileSystem();
-            await writeSplatFile(splats, serializeSettings, 'html', 'index.html', {
-                viewerSettingsJson: experienceSettings,
-                iterations: 10
-            }, memFs);
-
-            // Create ZIP from memory filesystem results. The try/finally
-            // ensures zipFs (and its underlying writer) is closed even if a
-            // write throws partway through, so we don't leak the output file.
-            const zipWriter = await fs.createWriter('output.zip');
-            const zipFs = new ZipFileSystem(zipWriter);
+            // The library emits a nested SOG, JS, CSS and settings. Stage to
+            // disk so packaging does not retain all of these files in RAM.
+            const staging = await StagingFileSystem.create();
+            let zipFs: ZipFileSystem;
             try {
-                for (const [filename, data] of memFs.results.entries()) {
-                    const writer = await zipFs.createWriter(filename);
-                    await writer.write(data);
-                    await writer.close();
-                }
-            } finally {
+                await writeSplatFile(splats, serializeSettings, 'html', 'index.html', {
+                    viewerSettingsJson: experienceSettings,
+                    iterations: 10
+                }, staging);
+                zipFs = new ZipFileSystem(await fs.createWriter('output.zip'));
+                await staging.copyTo(zipFs);
                 await zipFs.close();
+            } catch (error) {
+                await zipFs?.abort();
+                throw error;
+            } finally {
+                await staging.dispose();
             }
         }
     } catch (err) {
@@ -812,7 +809,20 @@ const serializeSog = async (splats: Splat[], settings: SogSettings, fs: FileSyst
     // renderer. That fires `progressEnd` and dismisses the dialog before
     // any error popup is shown.
     try {
-        await writeSplatFile(splats, settings, 'sog-bundle', 'output.sog', { iterations }, fs);
+        const zipFs = new ZipFileSystem(await fs.createWriter('output.sog'));
+        try {
+            // The unbundled writer computes the same textures/meta without its
+            // internal ZIP32 writer. Its paths are rooted by pathe.resolve.
+            const entries: FileSystem = {
+                createWriter: filename => zipFs.createWriter(filename.replace(/^.*[\\/]/, '')),
+                mkdir: path => zipFs.mkdir(path)
+            };
+            await writeSplatFile(splats, settings, 'sog', 'meta.json', { iterations }, entries);
+            await zipFs.close();
+        } catch (error) {
+            await zipFs.abort();
+            throw error;
+        }
     } catch (err) {
         splatTransformLogger.unwindAll(true);
         throw err;

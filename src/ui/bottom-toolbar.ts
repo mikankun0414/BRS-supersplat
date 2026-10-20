@@ -4,6 +4,7 @@ import { Events } from '../events';
 import { ShortcutManager } from '../shortcut-manager';
 import { i18n } from './localization';
 import { MenuPanel } from './menu-panel';
+import cloneStampSvg from './svg/clone-stamp.svg';
 import layerAlignSvg from './svg/layer-align.svg';
 import measureSvg from './svg/measure.svg';
 import meshEditSvg from './svg/mesh-edit.svg';
@@ -306,6 +307,11 @@ class BottomToolbar extends Container {
             class: 'bottom-toolbar-tool'
         });
 
+        const cloneStamp = new Button({
+            id: 'bottom-toolbar-clone-stamp',
+            class: 'bottom-toolbar-tool'
+        });
+
         const orient = new Button({
             id: 'bottom-toolbar-orient',
             class: 'bottom-toolbar-tool'
@@ -336,6 +342,7 @@ class BottomToolbar extends Container {
         sphere.dom.appendChild(createSvg(sphereSvg));
         box.dom.appendChild(createSvg(boxSvg));
         measure.dom.appendChild(createSvg(measureSvg));
+        cloneStamp.dom.appendChild(createSvg(cloneStampSvg));
         orient.dom.appendChild(createSvg(orientSvg));
         layerAlign.dom.appendChild(createSvg(layerAlignSvg));
         meshEdit.dom.appendChild(createSvg(meshEditSvg));
@@ -363,6 +370,7 @@ class BottomToolbar extends Container {
         this.append(meshEdit);
         this.append(new Element({ class: 'bottom-toolbar-separator' }));
         this.append(measure);
+        this.append(cloneStamp);
         this.append(orient);
         this.append(layerAlign);
         this.append(coordSpace);
@@ -388,6 +396,7 @@ class BottomToolbar extends Container {
         scale.dom.addEventListener('click', () => events.fire('tool.scale'));
         meshEdit.on('click', () => events.fire('tool.meshEdit'));
         measure.dom.addEventListener('click', () => events.fire('tool.measure'));
+        cloneStamp.dom.addEventListener('click', () => events.fire('tool.cloneStamp'));
         orient.dom.addEventListener('click', () => events.fire('tool.orient'));
         layerAlign.dom.addEventListener('click', () => events.fire('tool.layerAlign'));
         coordSpace.dom.addEventListener('click', () => events.fire('tool.toggleCoordSpace'));
@@ -451,6 +460,7 @@ class BottomToolbar extends Container {
             scale.class[toolName === 'scale' ? 'add' : 'remove']('active');
             meshEdit.class[toolName === 'meshEdit' ? 'add' : 'remove']('active');
             measure.class[toolName === 'measure' ? 'add' : 'remove']('active');
+            cloneStamp.class[toolName === 'cloneStamp' ? 'add' : 'remove']('active');
             orient.class[toolName === 'orient' ? 'add' : 'remove']('active');
             layerAlign.class[toolName === 'layerAlign' ? 'add' : 'remove']('active');
         });
@@ -478,6 +488,7 @@ class BottomToolbar extends Container {
         tooltips.register(scale, tooltip('tooltip.bottom-toolbar.scale', 'tool.scaleShortcut'));
         tooltips.register(meshEdit, tooltip('tooltip.bottom-toolbar.mesh-edit'));
         tooltips.register(measure, tooltip('tooltip.bottom-toolbar.measure'));
+        tooltips.register(cloneStamp, tooltip('tooltip.bottom-toolbar.clone-stamp', 'tool.cloneStamp'));
         tooltips.register(orient, tooltip('tooltip.bottom-toolbar.orient'));
         tooltips.register(layerAlign, tooltip('tooltip.bottom-toolbar.layer-align'));
         tooltips.register(coordSpace, tooltip('tooltip.bottom-toolbar.local-space', 'tool.toggleCoordSpace'));

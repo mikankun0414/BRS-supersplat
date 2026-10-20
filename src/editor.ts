@@ -2,7 +2,7 @@ import { Color, Mat4, Quat, Texture, Vec3 } from 'playcanvas';
 
 import { createGradeTerms, gradeTerms, type GradeParams } from './color-grade';
 import { EditHistory } from './edit-history';
-import { selectedRanges, SelectAllOp, SelectNoneOp, SelectInvertOp, SelectOp, HideSelectionOp, UnhideAllOp, RemoveInstancesOp, RestoreMissingInstancesOp, MultiOp, AddSplatOp, SetLocalFrameOp, SplatsColorOp } from './edit-ops';
+import { selectedRanges, SelectAllOp, SelectNoneOp, SelectInvertOp, SelectOp, HideSelectionOp, UnhideAllOp, RemoveInstancesOp, RestoreMissingInstancesOp, MultiOp, AddSplatOp, SetLocalFrameOp, SplatsColorOp, MergeSplatsOp } from './edit-ops';
 import { Element, ElementType } from './element';
 import { Events } from './events';
 import type { GridPlane } from './infinite-grid';
@@ -930,6 +930,34 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
 
     events.on('edit.separate', () => {
         performSelectionFunc('separate');
+    });
+
+    const getMergeableSources = (target: Splat): Splat[] => {
+        if (!target || !target.visible) {
+            return [];
+        }
+        return (scene.getElementsByType(ElementType.splat) as Splat[])
+        .filter(splat => splat !== target && splat.visible && splat.resource === target.resource);
+    };
+
+    events.function('selection.canMerge', () => {
+        const target = selectedSplats()[0];
+        if (!target) {
+            return false;
+        }
+        return getMergeableSources(target).length > 0;
+    });
+
+    events.on('edit.merge', () => {
+        const target = selectedSplats()[0];
+        if (!target) {
+            return;
+        }
+        const sources = getMergeableSources(target);
+        if (sources.length === 0) {
+            return;
+        }
+        editHistory.add(new MergeSplatsOp(scene, target, sources));
     });
 
     // bake the panel's pending grade into the selected gaussians. `params` are the

@@ -50,6 +50,7 @@ const defaultShortcuts: Record<string, ShortcutBinding> = {
     'tool.brushSelection': { keys: ['b'] },
     'tool.sphereBrushSelection': { keys: ['b'], shift: 'required' },
     'tool.floodSelection': { keys: ['o'] },
+    'tool.cloneStamp': { keys: ['k'] },
     'tool.eyedropperSelection': { keys: ['e'], ctrl: 'required', capture: true },
     'tool.brushSelection.smaller': { keys: ['['], repeat: true },
     'tool.brushSelection.bigger': { keys: [']'], repeat: true },

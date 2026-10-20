@@ -3,7 +3,7 @@ import { Color, Mat4, Mesh, Quat, Vec3 } from 'playcanvas';
 import { AnimTrack } from './anim-track';
 import { BoxShape } from './box-shape';
 import { composeGrades, createGradeTerms, type GradeTerms } from './color-grade';
-import type { RemovedInstances } from './gaussian-instances';
+import { GaussianInstances, type RemovedInstances } from './gaussian-instances';
 import { IndexRanges, sortedPredicate } from './index-ranges';
 import type { GltfModel } from './model';
 import { Pivot } from './pivot';
@@ -693,6 +693,227 @@ class SplatRenameOp {
     }
 }
 
+const isIdentityMat = (m: Mat4, eps = 1e-5) => {
+    const d = m.data;
+    return Math.abs(d[0] - 1) < eps && Math.abs(d[1]) < eps && Math.abs(d[2]) < eps && Math.abs(d[3]) < eps &&
+           Math.abs(d[4]) < eps && Math.abs(d[5] - 1) < eps && Math.abs(d[6]) < eps && Math.abs(d[7]) < eps &&
+           Math.abs(d[8]) < eps && Math.abs(d[9]) < eps && Math.abs(d[10] - 1) < eps && Math.abs(d[11]) < eps &&
+           Math.abs(d[12]) < eps && Math.abs(d[13]) < eps && Math.abs(d[14]) < eps && Math.abs(d[15] - 1) < eps;
+};
+
+class MergeSplatsOp {
+    name = 'mergeSplats';
+    scene: Scene;
+    splat: Splat;
+    sources: Splat[];
+
+    private originalInstances: GaussianInstances;
+    private mergedInstances: GaussianInstances | null = null;
+    private sourceIndices: number[] = [];
+    private applied = false;
+
+    private numAllocatedTransforms = 0;
+    private numAllocatedColors = 0;
+    private allocatedTransforms: Array<{ index: number, mat: Mat4 }> = [];
+    private allocatedColors: Array<{ index: number, terms: GradeTerms }> = [];
+
+    constructor(scene: Scene, splat: Splat, sources: Splat[]) {
+        this.scene = scene;
+        this.splat = splat;
+        this.sources = [...sources];
+        this.originalInstances = splat.instances;
+    }
+
+    private buildMergedState() {
+        const target = this.splat;
+        const sources = this.sources;
+
+        let totalCount = target.instances.count;
+        for (const source of sources) {
+            totalCount += source.instances.count;
+        }
+
+        const numRows = target.resource.numRows;
+        const present = new Uint8Array(numRows);
+        for (let i = 0; i < target.instances.count; ++i) {
+            const row = target.instances.sourceRow[i];
+            if (row < numRows) present[row] = 1;
+        }
+        for (const source of sources) {
+            for (let i = 0; i < source.instances.count; ++i) {
+                const row = source.instances.sourceRow[i];
+                if (row < numRows) present[row] = 1;
+            }
+        }
+        let missingCount = 0;
+        for (let r = 0; r < numRows; ++r) {
+            if (!present[r]) missingCount++;
+        }
+
+        const capacity = Math.max(numRows, totalCount + missingCount);
+        const merged = new GaussianInstances(target.resource.device, capacity);
+        merged.numRows = numRows;
+
+        // Copy target instances directly
+        const targetCount = target.instances.count;
+        merged.sourceRow.set(target.instances.sourceRow.subarray(0, targetCount), 0);
+        merged.flags.set(target.instances.flags.subarray(0, targetCount), 0);
+        merged.palette.set(target.instances.palette.subarray(0, targetCount), 0);
+
+        const invTargetMat = new Mat4().copy(target.entity.getWorldTransform()).invert();
+        let dstOffset = targetCount;
+
+        for (const source of sources) {
+            const relMat = new Mat4().mul2(invTargetMat, source.entity.getWorldTransform());
+            const relIsIdentity = isIdentityMat(relMat);
+
+            const transformMap = new Map<number, number>();
+            const colorMap = new Map<number, number>();
+
+            const getMappedTransform = (oldIdx: number): number => {
+                let mapped = transformMap.get(oldIdx);
+                if (mapped !== undefined) return mapped;
+
+                if (oldIdx === 0 && relIsIdentity) {
+                    mapped = 0;
+                } else {
+                    const ptMat = new Mat4();
+                    if (oldIdx === 0) {
+                        ptMat.copy(relMat);
+                    } else {
+                        const sourceMat = new Mat4();
+                        source.transformPalette.getTransform(oldIdx, sourceMat);
+                        ptMat.mul2(relMat, sourceMat);
+                    }
+
+                    if (isIdentityMat(ptMat)) {
+                        mapped = 0;
+                    } else {
+                        mapped = target.transformPalette.alloc(1);
+                        this.numAllocatedTransforms++;
+                        target.transformPalette.setTransform(mapped, ptMat);
+                        this.allocatedTransforms.push({ index: mapped, mat: ptMat.clone() });
+                    }
+                }
+                transformMap.set(oldIdx, mapped);
+                return mapped;
+            };
+
+            const getMappedColor = (oldIdx: number): number => {
+                if (oldIdx === 0) return 0;
+                let mapped = colorMap.get(oldIdx);
+                if (mapped !== undefined) return mapped;
+
+                mapped = target.colorPalette.alloc(1);
+                this.numAllocatedColors++;
+                const terms = createGradeTerms();
+                source.colorPalette.getEntry(oldIdx, terms);
+                target.colorPalette.setEntry(mapped, terms);
+                this.allocatedColors.push({ index: mapped, terms });
+                colorMap.set(oldIdx, mapped);
+                return mapped;
+            };
+
+            const sourceCount = source.instances.count;
+            merged.sourceRow.set(source.instances.sourceRow.subarray(0, sourceCount), dstOffset);
+            merged.flags.set(source.instances.flags.subarray(0, sourceCount), dstOffset);
+
+            for (let j = 0; j < sourceCount; ++j) {
+                const oldTrans = source.instances.transformIndex(j);
+                const newTrans = getMappedTransform(oldTrans);
+                const oldColor = source.instances.colorIndex(j);
+                const newColor = getMappedColor(oldColor);
+                merged.palette[dstOffset + j] = (newTrans & 0xffff) | ((newColor & 0xffff) << 16);
+            }
+
+            dstOffset += sourceCount;
+        }
+
+        merged.count = totalCount;
+        merged.numRemoved = missingCount;
+        merged.markDirty(0, totalCount);
+        this.mergedInstances = merged;
+    }
+
+    async do() {
+        if (!this.mergedInstances) {
+            this.buildMergedState();
+        } else {
+            // Redo: re-allocate palette entries and populate them
+            if (this.numAllocatedTransforms > 0) {
+                this.splat.transformPalette.alloc(this.numAllocatedTransforms);
+                for (const entry of this.allocatedTransforms) {
+                    this.splat.transformPalette.setTransform(entry.index, entry.mat);
+                }
+            }
+            if (this.numAllocatedColors > 0) {
+                this.splat.colorPalette.alloc(this.numAllocatedColors);
+                for (const entry of this.allocatedColors) {
+                    this.splat.colorPalette.setEntry(entry.index, entry.terms);
+                }
+            }
+        }
+
+        this.sourceIndices = this.sources.map(source => this.scene.elements.indexOf(source));
+        for (const source of this.sources) {
+            this.scene.remove(source);
+        }
+        this.splat.instances = this.mergedInstances!;
+        this.applied = true;
+        await this.splat.updateState();
+    }
+
+    async undo() {
+        this.splat.instances = this.originalInstances;
+        if (this.numAllocatedTransforms > 0) {
+            this.splat.transformPalette.free(this.numAllocatedTransforms);
+        }
+        if (this.numAllocatedColors > 0) {
+            this.splat.colorPalette.free(this.numAllocatedColors);
+        }
+        this.applied = false;
+        await this.splat.updateState();
+
+        for (let i = 0; i < this.sources.length; ++i) {
+            const source = this.sources[i];
+            const savedIndex = this.sourceIndices[i];
+            await this.scene.add(source, savedIndex >= 0 ? savedIndex : undefined);
+            if (savedIndex >= 0 && Array.isArray(this.scene.elements)) {
+                const cur = this.scene.elements.indexOf(source);
+                if (cur !== -1 && cur !== savedIndex) {
+                    this.scene.elements.splice(cur, 1);
+                    this.scene.elements.splice(Math.min(savedIndex, this.scene.elements.length), 0, source);
+                }
+            }
+        }
+    }
+
+    destroy() {
+        if (this.applied) {
+            if (this.originalInstances) {
+                this.originalInstances.destroy();
+            }
+            for (const source of this.sources) {
+                if (!source.scene) {
+                    source.destroy();
+                }
+            }
+        } else {
+            if (this.mergedInstances) {
+                this.mergedInstances.destroy();
+            }
+        }
+        this.scene = null as any;
+        this.splat = null as any;
+        this.sources = [];
+        this.sourceIndices = [];
+        this.originalInstances = null as any;
+        this.mergedInstances = null;
+        this.allocatedTransforms = [];
+        this.allocatedColors = [];
+    }
+}
+
 export {
     EditOp,
     selectedRanges,
@@ -716,5 +937,6 @@ export {
     AddSplatOp,
     SplatRenameOp,
     MeshEditOp,
-    MeshEditChange
+    MeshEditChange,
+    MergeSplatsOp
 };

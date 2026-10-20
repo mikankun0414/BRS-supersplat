@@ -1,3 +1,4 @@
+import type { Writer } from '@playcanvas/splat-transform';
 import { Mat4 } from 'playcanvas';
 
 import { createGradeTerms, gradeFromRows, gradeRows, type GradeTerms } from './color-grade';
@@ -84,10 +85,64 @@ const encodeInstances = (splat: Splat, rowMap: Uint32Array): ArrayBuffer => {
     return buffer;
 };
 
+// Same v1 layout as encodeInstances, with at most 64 KiB of encoded scratch.
+// Every write is awaited before scratch is reused (including palette entries).
+const writeInstances = async (splat: Splat, rowMap: Uint32Array | null, writer: Writer): Promise<void> => {
+    const { instances, transformPalette, colorPalette } = splat;
+    const { count } = instances;
+    const header = new Uint32Array([MAGIC, VERSION, count, transformPalette.size, colorPalette.size]);
+    await writer.write(new Uint8Array(header.buffer));
+    const words = new Uint32Array(16384);
+    const bytes = new Uint8Array(words.buffer);
+    for (let at = 0; at < count; at += words.length) {
+        const length = Math.min(words.length, count - at);
+        for (let i = 0; i < length; i++) {
+            const row = instances.sourceRow[at + i];
+            words[i] = rowMap ? rowMap[row] : row;
+        }
+        await writer.write(bytes.subarray(0, length * 4));
+    }
+    for (let at = 0; at < count; at += words.length) {
+        const length = Math.min(words.length, count - at);
+        words.set(instances.palette.subarray(at, at + length));
+        await writer.write(bytes.subarray(0, length * 4));
+    }
+    for (let at = 0; at < count; at += bytes.length) {
+        const length = Math.min(bytes.length, count - at);
+        bytes.set(instances.flags.subarray(at, at + length));
+        await writer.write(bytes.subarray(0, length));
+    }
+    const padding = (4 - count % 4) % 4;
+    if (padding) await writer.write(new Uint8Array(padding));
+    const floats = new Float32Array(words.buffer);
+    const mat = new Mat4();
+    for (let at = 0; at < transformPalette.size; at += 1024) {
+        const length = Math.min(1024, transformPalette.size - at);
+        for (let i = 0; i < length; i++) {
+            transformPalette.getTransform(at + i, mat);
+            floats.set(mat.data, i * TRANSFORM_FLOATS);
+        }
+        await writer.write(bytes.subarray(0, length * TRANSFORM_FLOATS * 4));
+    }
+    const terms = createGradeTerms();
+    const rows = new Float32Array(12);
+    for (let at = 0; at < colorPalette.size; at += 1024) {
+        const length = Math.min(1024, colorPalette.size - at);
+        for (let i = 0; i < length; i++) {
+            colorPalette.getEntry(at + i, terms);
+            gradeRows(terms, rows);
+            floats.set(rows, i * COLOR_FLOATS);
+            floats[i * COLOR_FLOATS + 12] = terms.transparency;
+        }
+        await writer.write(bytes.subarray(0, length * COLOR_FLOATS * 4));
+    }
+};
+
 const decodeInstances = (bytes: Uint8Array): InstanceRecords => {
+    if (bytes.length < HEADER_WORDS * 4 || bytes.length % 4) throw new Error('Truncated supersplat instance blob');
     // copy into a fresh buffer: a zip read hands back a view at an arbitrary
     // offset, and the u32/f32 views below need 4-byte alignment
-    const buffer = bytes.slice().buffer as ArrayBuffer;
+    const buffer = new Uint8Array(bytes).buffer;
     const u32 = new Uint32Array(buffer);
     if (u32[0] !== MAGIC) {
         throw new Error('not a supersplat instance blob');
@@ -98,6 +153,8 @@ const decodeInstances = (bytes: Uint8Array): InstanceRecords => {
     const count = u32[2];
     const numTransform = u32[3];
     const numColor = u32[4];
+    const expectedWords = HEADER_WORDS + count * 2 + Math.ceil(count / 4) + numTransform * TRANSFORM_FLOATS + numColor * COLOR_FLOATS;
+    if (expectedWords * 4 !== bytes.length) throw new Error('Invalid supersplat instance blob size');
     const f32 = new Float32Array(buffer);
 
     let at = HEADER_WORDS;
@@ -146,5 +203,5 @@ const restorePalettes = (
     }
 };
 
-export { encodeInstances, decodeInstances, restorePalettes };
+export { encodeInstances, writeInstances, decodeInstances, restorePalettes };
 export type { InstanceRecords };

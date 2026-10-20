@@ -20,6 +20,7 @@ import { ShortcutManager } from './shortcut-manager';
 import { registerTimelineEvents } from './timeline';
 import { BoxSelection } from './tools/box-selection';
 import { BrushSelection } from './tools/brush-selection';
+import { CloneStampTool } from './tools/clone-stamp-tool';
 import { EyedropperSelection } from './tools/eyedropper-selection';
 import { FloodSelection } from './tools/flood-selection';
 import { LassoSelection } from './tools/lasso-selection';
@@ -269,6 +270,7 @@ const main = async () => {
     toolManager.register('meshEdit', new MeshEditTool(events, scene, editorUI.canvas));
     toolManager.register('measure', new MeasureTool(events, scene, editorUI.canvasContainer, editorUI.annotationContainer.dom));
     toolManager.register('orient', new OrientTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer, editorUI.annotationContainer.dom));
+    toolManager.register('cloneStamp', new CloneStampTool(events, scene, editorUI.canvasContainer));
     toolManager.register('layerAlign', new LayerAlignTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer));
 
     const boundDimensionsOverlay = new BoundDimensionsOverlay(events, scene, editorUI.canvasContainer, editorUI.annotationContainer.dom);

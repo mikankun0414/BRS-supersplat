@@ -1,5 +1,7 @@
 .claude
 .cursor/**
+!.cursor/rules/
+!.cursor/rules/**
 !.cursor/skills/
 !.cursor/skills/**
 .DS_Store

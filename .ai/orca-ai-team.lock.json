@@ -1,13 +1,14 @@
 {
-  "kit_commit": "12be54a",
+  "kit_commit": "450163c",
   "files": {
-    ".agents/rules/ai-team.md": "b821632cccb1eee77dace0db5f974d1825ddc3d568cbd9654f77988a04436bd4",
-    ".cursor/rules/ai-team.mdc": "a2a042f48021d1ef4c18ba1660d9ae688a1e8b1e8c343a7c1d6bcbb17c6339b3",
+    ".agents/rules/ai-team.md": "676b9a7dc65ecca298449e46a59cdbbe427f838d1b223ea830dbfd82562216d4",
+    ".cursor/rules/ai-team.mdc": "5ef36dfe9440c3539e6f389a5f73c8a9d48329cc7c6e9581b6bea263fc5d1349",
+    ".cursor/skills/open-folder-link/SKILL.md": "32fb689f912173809dd9deaefa7b1819fe30a2903350b8bc2927188d829325df",
     "prompts/kickoff.md": "7b56cbb8879a83c605a44bc03e459efe577fd04f88beffb6e0dd231062b56e1d",
     "prompts/plan-team.md": "f7bde264161c6675d6d2b03d8f507d2bfd01fae5a1d6654257c3de92639cf132",
     "prompts/rd-team.md": "1fafcb3f0120344cfe209c9414d7532bb6ecf33de3f4ce74ddb1eec2282db399",
     "prompts/resume-team.md": "a9bcb7c0a5afc29b5517a044f79534b7e6dddddf530284557bf2a57dc67d4adc",
-    "prompts/run-team.md": "84da48fd183b95de748ba91ea23c1388fee44326fa385acc4b7f831e7141e861",
+    "prompts/run-team.md": "8d7ead362c0f52f84cdeaffa3c95e4b1ad398f2db5f5688f3099c653d19d8568",
     "scripts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "scripts/ai-team-common.ps1": "d6879239b6e2fa1c5b40a6399b2569283f90c7241492a8c784adf0fab8be9c65",
     "scripts/board.ps1": "726a2a969ade61f6df1a07ea8d616068b604c6a19eec7a30f248f7b28e5fef53",

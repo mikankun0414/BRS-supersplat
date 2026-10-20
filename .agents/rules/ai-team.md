@@ -10,4 +10,5 @@ description: AIチーム運用の共通ルール
 3. コードや成果物を変えたら、別出自のAIのレビューを受ける。Taskに "important": true / false を必ず書く。kit・共通スクリプト・並列化・設計変更は true (別出自2モデル)。origin は config/ai-team.json の origin の語 (google / openai / anthropic / cursor / xai など) を書く。Antigravity の Gemini は google。エージェント名は書かない。
 4. 完了・成功と報告する前に python scripts/orchestration/team_control.py finish-check --task-file <Task JSON> を通す。カードを確認待ちにするのは scripts/board.ps1 review -RunId <run> -TaskFile <Task JSON> か、worker_done後の scripts/board.ps1 sync -RunId <run> -TaskFile <Task JSON>。-NoChange "理由" はファイルを何も変えていない相談・調査だけ。PowerShellでは -TaskFile / -NoChange と書く (--task-file は付けない)。通らなければ「未完了」と足りないものを報告する。finish-checkのokは「記録がそろった」だけで、quality.statusがVERIFIEDでなければ成功と言わない。
 5. 確かめたことだけを言う。ファイルサイズが同じだけで「完全一致」と言わない (中身はハッシュで比べる)。見ていない品質はUNREVIEWED。存在を確かめていない規則やモデル名を挙げない。
+6. 最後に成果物を出すときは、フルパスに加えてフォルダを開くリンクを付ける。表示は「フォルダを開く」、URI は file:/// と / 区切り。同じフォルダが続くときはリンクは1つでよい。
 以後も AGENTS.md の全ルールに従う。

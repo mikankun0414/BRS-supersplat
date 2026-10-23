@@ -14,3 +14,7 @@ node_modules
 __pycache__/
 *.pyc
 .env
+
+# Accidental Windows cache mirror and local archive
+/%SystemDrive%/
+/supersplat.zip

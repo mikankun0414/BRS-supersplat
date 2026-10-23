@@ -370,7 +370,7 @@ def task_spec(task, rules=()):
             raise ValueError('Task requires nonempty ' + field)
     state = '\n'.join(f'{field.title()}: {task[field]}' for field in ('target', 'change', 'constraints', 'ownership', 'acceptance'))
     project_rules = ' '.join(r.strip() for r in rules if r.strip())
-    return ('Read AGENTS.md and .ai/{GOAL,LATEST,PLAN,HANDOFF,REVIEW}.md first.\n' + state +
+    return ('Read AGENTS.md, .ai/GOAL.md, .ai/HANDOFF.md and git status first; read other state files only as needed.\n' + state +
         '\nWorkflow contract: ' + json.dumps(workflow, ensure_ascii=False) +
         '\nRead prompts/rd-team.md for rd mode, prompts/run-team.md for normal mode. '
         'Unobserved visual quality is UNREVIEWED. This contract is not permission to generate, '

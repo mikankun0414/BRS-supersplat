@@ -1,6 +1,6 @@
 # 主担当として再開する
 
-AGENTS.md、現在の依頼、.ai/HANDOFF、REVIEW未対応、PLAN、TEAMとgit status/diffを確認する。
+AGENTS.md、現在の依頼、.ai/GOAL.md、HANDOFF.md、git status/diffを確認する。REVIEW未対応、PLAN、TEAMは対象Taskに必要な箇所だけ読む。詳細な操作はprompts/team-policy.mdの該当項目を読む。
 相談だけならprompts/kickoff.mdに従い回答し、Run・ボード・workerを操作しない。
 
 - 明確な続きの依頼は再開する。「続き / 見直し / 新規」や前回の編成を毎回聞かない。

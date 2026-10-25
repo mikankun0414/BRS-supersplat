@@ -44,8 +44,28 @@ class BoardStatusTests(unittest.TestCase):
 
     def test_only_this_workspace_counts(self):
         rows = [worker('succeeded'), worker(None, space='x::Z:/elsewhere')]
-        with patch.object(t, 'cli', return_value={'result': {'workers': rows, 'page': {}}}):
+        with patch.object(t, 'cli', return_value={'ok': True, 'exit_code': 0,
+                                                   'result': {'workers': rows, 'page': {'hasMore': False}}}):
             self.assertEqual(len(t.run_workers('run_x')), 1)
+
+    def test_worker_list_failure_cannot_look_complete(self):
+        for receipt in ({'ok': False, 'exit_code': 1}, {'ok': False, 'outcome_unknown': True},
+                        {'ok': True, 'exit_code': 0, 'outcome_unknown': True,
+                         'result': {'workers': [worker('succeeded')], 'page': {'hasMore': False}}},
+                        {'ok': True, 'result': {'workers': [], 'page': {'hasMore': False}}},
+                        {'ok': True, 'exit_code': 0, 'result': {'workers': []}},
+                        {'ok': True, 'exit_code': 0, 'result': {'workers': [], 'page': {'hasMore': 'true'}}},
+                        {'ok': True, 'exit_code': 0, 'result': {'workers': [None], 'page': {'hasMore': False}}},
+                        {'ok': True, 'exit_code': 0,
+                         'result': {'workers': [worker('succeeded') | {'projection': None}], 'page': {'hasMore': False}}},
+                        {'ok': True, 'exit_code': 0,
+                         'result': {'workers': [worker('succeeded') | {'projection':
+                             {'workspace': {'id': 'x::' + str(t.ROOT)}, 'attention': None}}],
+                                    'page': {'hasMore': False}}}):
+            with self.subTest(receipt=receipt), patch.object(t, 'cli', return_value=receipt):
+                rows = t.run_workers('run_x')
+                self.assertTrue(rows.reason)
+                self.assertEqual(t.board_status(rows)[0], 'in-progress')
 
 
 class BoardSetTests(unittest.TestCase):
@@ -667,13 +687,30 @@ class BoardLifecycleConcurrencyTests(unittest.TestCase):
 
 class PaginationTests(unittest.TestCase):
     def test_missing_or_repeated_cursor_stops_with_reason(self):
-        for cursor in (None, 'same'):
-            with self.subTest(cursor=cursor), patch.object(t, 'cli', side_effect=[
-                {'result': {'workers': [], 'page': {'hasMore': True, 'nextCursor': cursor}}},
-                {'result': {'workers': [], 'page': {'hasMore': True, 'nextCursor': cursor}}},
-                RuntimeError('infinite loop')]):
+        for cursor, receipts in ((None, [{'ok': True, 'exit_code': 0,
+                                          'result': {'workers': [], 'page': {'hasMore': True}}}]),
+                                 ('same', [{'ok': True, 'exit_code': 0,
+                                            'result': {'workers': [], 'page': {'hasMore': True, 'nextCursor': 'same'}}},
+                                           {'ok': True, 'exit_code': 0,
+                                            'result': {'workers': [], 'page': {'hasMore': True, 'nextCursor': 'same'}}}])):
+            with self.subTest(cursor=cursor), patch.object(t, 'cli', side_effect=receipts):
                 rows = t.run_workers('run')
                 self.assertTrue(rows.reason)
+
+    def test_unhashable_next_cursor_stops_with_reason(self):
+        with patch.object(t, 'cli', return_value={'ok': True, 'exit_code': 0,
+                'result': {'workers': [], 'page': {'hasMore': True, 'nextCursor': {'value': 'x'}}}}):
+            self.assertTrue(t.run_workers('run').reason)
+
+    def test_second_page_failure_keeps_partial_results_unreviewed(self):
+        with patch.object(t, 'cli', side_effect=[
+                {'ok': True, 'exit_code': 0, 'result': {'workers': [worker('succeeded')],
+                                                         'page': {'hasMore': True, 'nextCursor': 'next'}}},
+                {'ok': False, 'outcome_unknown': True}]):
+            rows = t.run_workers('run')
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows.reason)
+        self.assertEqual(t.board_status(rows)[0], 'in-progress')
 
 
 if __name__ == '__main__':

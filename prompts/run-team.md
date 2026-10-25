@@ -6,7 +6,7 @@ AGENTS.md と .ai/GOAL.md、HANDOFF.md、git statusを読む。PLAN/TEAM/BUDGET/
 基本は現在の主担当1人。役ごとのworker起動は必須ではない。TEAMの承認済み編成を引き継ぎ、委任taskだけに "assigned": {"agent", "model"} を書く。新しい役・未承認の費用区分だけ確認する。選んだAIが使えない時は同じ役・クラス・必要な別出自を満たす承認済み代替へ移し、理由をHANDOFFとユーザーへ報告する。候補不足は未実施として相談し、自動で上位クラスにしない。
 Runを作り、Target/Change/Constraints/Ownership/Acceptanceが揃ったTaskだけを起動する。
 Taskにwork_typeとworkflow.mode (normal / rd) を持たせる。省略時はnormal。ユーザー指示かAIの提案への承認で対象Taskだけ切り替え、モデル・権限は自動変更しない。
-normalのコード・手順レビュー: 主担当の実装→テスト。ふだんのレビューは別出自1モデルで1回。重要変更 (kit/共通スクリプトなど広く配るもの) は最初から独立2モデルのreportを互いの結論を見る前に提出。修正後はテストで確認し、再レビューしない。同じ箇所を2回目に直すときだけ別出自のレビューを1つ足す。それでも直らなければユーザーに相談する。挙動・権限・共通運用を変えない誤字/整形だけは主担当確認でよく、理由を記録する。
+normalのコード・手順レビュー: 主担当の実装→テスト。ふだんのレビューは別出自1モデルで1回。重要変更 (kit/共通スクリプトなど広く配るもの) は最初から独立2モデルのreportを互いの結論を見る前に提出。指摘を直したら、変更した箇所が指摘のリスクを解消したかを確認する。挙動・権限・共通運用・workerの読取範囲に関わる変更は、指摘箇所の外も含めて別出自で再確認する。省略できるのは、それらを変えない文面・整形だけで、理由を記録する。同じ指摘が残る場合は別出自のレビューを追加し、それでも解消しなければユーザーに相談する。
 rdはprompts/rd-team.mdの反復手順に従う。実物・計測の品質再評価はコードレビューとは別工程で、修正のたびに必要。rdのコード変更にも上のレビュー規則を適用する。
 主担当の直接実行でもTask JSONを python scripts/orchestration/team_control.py workflow --task-file <path> で事前検証できる。これは形式チェックで、許可・品質・予算の実績や自動実行を保証しない。startは同じ検証を起動前に必ず行う。
 完了・成功と報告する前に、主担当の直接作業も含めTask JSONに important (true/false。kit・共通スクリプト・並列化・設計変更はtrueで別出自2件)、lead {agent, model, origin}、review.reports [{path, agent, model, origin}] (pathは .ai/reports/ の下。important=falseで挙動を変えない誤字/整形、またはコードを変えないrdの計測だけの試行は review.skip_reason)、rdでは quality {agent, model, origin, status, report} (workflow.team.qualityと同じAI) を書き、python scripts/orchestration/team_control.py finish-check --task-file <path> を通す。これは記録の確認で、レビュー内容や品質の合否は判定しない。

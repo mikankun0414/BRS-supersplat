@@ -44,19 +44,38 @@ class HistoryTests(unittest.TestCase):
         event = self.lines()[0]
         self.assertEqual(event['event'], 'start')
         self.assertEqual((event['dispatch_id'], event['work_type'], event['work_type_guessed']), ('ctx_a', 'docs', False))
-        self.assertEqual(event['used']['model'], 'composer-2.5')
+        self.assertEqual(event['requested']['model'], 'composer-2.5')
+        self.assertIsNone(event['used'])
+        self.assertFalse(event['effective_model_verified'])
         self.assertEqual(event['assigned'], {'agent': 'claude'})
         self.assertEqual(event['fallback_reason'], ['provider auth or quota unavailable'])
         self.assertEqual(event['launch_state'], 'ready')
         self.assertEqual(event['workflow'], {'mode': 'normal'})
 
+    def test_launch_records_effective_model_only_with_receipt_evidence(self):
+        task = t.read_json(FIX / 'smoke.json')
+        route = {'agent': 'codex', 'model': 'gpt-6-luna', 'effort': 'medium', 'origin': 'openai',
+                 'class': 'FAST', 'role': 'tester'}
+        receipt = {'ok': True, 'exit_code': 0, 'result': {'state': 'ready', 'taskId': 'task_a',
+                   'dispatchId': 'ctx_effective', 'effective': {'agent': 'codex', 'model': 'gpt-6-luna'}}}
+        with patch.object(t, 'cli', return_value=receipt), patch.object(t, 'load_config', return_value={}):
+            t.dispatch(task, route, 'run_1', True)
+        event = next(e for e in self.lines() if e.get('dispatch_id') == 'ctx_effective')
+        self.assertEqual(event['used']['model'], 'gpt-6-luna')
+        self.assertTrue(event['effective_model_verified'])
+
     def test_failed_launch_is_recorded_as_launch_failed(self):
         task = t.read_json(FIX / 'smoke.json')
         route = {'agent': 'codex', 'model': 'gpt-6-luna', 'effort': 'medium', 'origin': 'openai', 'class': 'FAST', 'role': 'tester'}
-        with patch.object(t, 'cli', return_value={'ok': False, 'exit_code': 1}), patch.object(t, 'load_config', return_value={}):
+        with patch.object(t, 'cli', return_value={'ok': False, 'exit_code': 1,
+                'result': {'launch': {'effective': {'agent': 'codex', 'model': 'gpt-6-luna'}}}}), \
+             patch.object(t, 'load_config', return_value={}):
             t.dispatch(task, route, 'run_1', True)
         kinds = [(e['event'], e.get('outcome')) for e in self.lines()]
         self.assertEqual(kinds, [('start', None), ('result', 'launch_failed')])
+        start = self.lines()[0]
+        self.assertIsNone(start['used'])
+        self.assertFalse(start['effective_model_verified'])
 
     def test_result_written_once_per_dispatch_with_duration(self):
         t.history_append({'event': 'start', 'dispatch_id': 'ctx_a', 'run_id': 'run_1', 'at': '2026-10-01T00:00:00+00:00'})
@@ -102,6 +121,16 @@ class SuggestTests(unittest.TestCase):
             self.assertEqual(t.suggest_rating('R')['suggested_rating'], 'bad')
         with patch.object(t, 'history_events', return_value=self.events(duration=25)):
             self.assertEqual(t.suggest_rating('R')['suggested_rating'], 'ok')
+    def test_unverified_requested_model_does_not_join_model_baseline(self):
+        events = self.events()
+        current = next(e for e in events if e.get('dispatch_id') == 'now' and e['event'] == 'start')
+        current.update(requested={'agent': 'codex', 'model': 'm'}, used=None,
+                       effective_model_verified=False)
+        with patch.object(t, 'history_events', return_value=events):
+            result = t.suggest_rating('R')['dispatches'][0]
+        self.assertEqual(result['model_basis'], 'requested')
+        self.assertIsNone(result['median_min'])
+        self.assertEqual(result['baseline_count'], 0)
     def test_review_fixed_count_report_and_unknown(self):
         report = t.ROOT / 'review.json'
         report.write_text(json.dumps({'findings': [{'status': 'fixed'}, {'status': 'open'}, {'fixed': True}]}), encoding='utf-8')

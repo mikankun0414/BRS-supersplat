@@ -36,6 +36,17 @@ class ProjectStateCase(unittest.TestCase):
 
 
 class ProjectBoardTests(ProjectStateCase):
+    def test_incomplete_worker_list_does_not_write_result_history(self):
+        t.write_board_state('run_a', 'launch', 'in-progress', None)
+        rows = t.WorkerRows([worker('succeeded')])
+        rows.reason = 'worker-list outcome unknown'
+        with patch.object(t, 'run_workers', return_value=rows), \
+             patch.object(t, 'record_results') as record, \
+             patch.object(t, 'board_set', side_effect=self.fake_set):
+            t.board_sync('run_a')
+        record.assert_not_called()
+        self.assertEqual(self.moves[-1][0], 'in-progress')
+
     def test_card_stays_in_progress_until_every_run_finishes(self):
         t.write_board_state('run_a', 'launch', 'in-progress', None)
         t.write_board_state('run_b', 'launch', 'in-progress', None)
@@ -319,7 +330,8 @@ class WorktreeTests(unittest.TestCase):
     def test_workers_in_other_worktrees_of_the_project_count(self):
         rows = [worker('succeeded'), worker('succeeded', space='x::Z:/wt/child'), worker(None, space='x::Z:/other')]
         with patch.object(t, 'project_paths', return_value={t.norm_path(t.ROOT), t.norm_path('Z:/wt/child')}), \
-             patch.object(t, 'cli', return_value={'result': {'workers': rows, 'page': {}}}):
+             patch.object(t, 'cli', return_value={'ok': True, 'exit_code': 0,
+                                                 'result': {'workers': rows, 'page': {'hasMore': False}}}):
             self.assertEqual(len(t.run_workers('run_x')), 2)
 
     def test_state_root_of_a_worktree_is_the_main_checkout(self):

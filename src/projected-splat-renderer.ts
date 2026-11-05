@@ -49,6 +49,7 @@ import type { CameraFrame } from './camera';
 import { createGradeTerms, gradeRows, gradeTerms } from './color-grade';
 import type { GradeParams } from './color-grade';
 import { maskByteSize } from './data-processor/histogram-config';
+import { ElementType } from './element';
 import type { Scene } from './scene';
 import { footprintIntersect } from './shaders/footprint-intersect-shader';
 import { projectedSplatDepthReduce } from './shaders/projected-splat-depth-reduce-shader';
@@ -876,7 +877,8 @@ class ProjectedSplatRenderer {
             Math.abs(projection[0]) * targetSize.width * 0.5,
             Math.abs(projection[5]) * targetSize.height * 0.5
         ];
-        const selectedSplat = events.invoke('selection') as Splat;
+        const selection = events.invoke('selection') as Splat | null;
+        const selectedSplat = selection?.type === ElementType.splat ? selection : null;
         const selectedColor = events.invoke('selectedClr');
         const unselectedColor = events.invoke('unselectedClr');
         const lockedColor = events.invoke('lockedClr');

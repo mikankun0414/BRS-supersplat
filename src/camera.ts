@@ -361,6 +361,7 @@ class Camera extends Element {
         // configure camera to render all layers
         this.mainCamera.camera.layers = [
             scene.worldLayer.id,
+            scene.modelLayer.id,
             scene.splatLayer.id,
             scene.overlayLayer.id,
             scene.centersLayer.id,
@@ -643,10 +644,13 @@ class Camera extends Element {
             this.clearPass.setClearDepth(1);
             this.clearPass.setClearStencil(0);
 
-            // configure main pass - world layer with clears
+            // configure main pass - world layer with clears, then glTF models
+            // on their own layer so PBR materials stay out of the splat MRT pass
             this.mainPass.init(this.mainTarget);
             this.mainPass.addLayer(this.camera, scene.worldLayer, false, false);
+            this.mainPass.addLayer(this.camera, scene.modelLayer, false, false);
             this.mainPass.addLayer(this.camera, scene.worldLayer, true, false);
+            this.mainPass.addLayer(this.camera, scene.modelLayer, true, false);
 
             // configure splat pass - MRT target, no clears
             this.splatPass.init(this.splatTarget);

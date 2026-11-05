@@ -131,8 +131,17 @@ const createEditorAPI = (events: Events, scene: Scene, editHistory: EditHistory,
         if (!splat) throw new EditorError('layer_not_found', `No layer with id ${id}. Read the scene again.`);
         return splat;
     };
+    const activeSplat = () => {
+        const selected = events.invoke('selection') as Splat | null;
+        // Test doubles omit type. Real splats set it; a selected glTF model must not be treated as a layer.
+        if (!selected || (selected.type != null && selected.type !== ElementType.splat)) {
+            return null;
+        }
+        return selected;
+    };
+
     const target = (id?: LayerId) => {
-        const splat = id === undefined ? (events.invoke('selection') as Splat) : layerById(id);
+        const splat = id === undefined ? activeSplat() : layerById(id);
         if (!splat) throw new EditorError('no_active_layer', 'No active layer. Specify a layer ID.');
         return splat;
     };
@@ -298,7 +307,11 @@ const createEditorAPI = (events: Events, scene: Scene, editHistory: EditHistory,
     const changes = new EventHandler();
     const changed = (event: ChangeEvent, detail: ChangeDetail = {}) => changes.fire(event, detail);
 
-    events.on('selection.changed', (splat: Splat | null) => changed('selectionChanged', { layer: splat?.uid }));
+    events.on('selection.changed', (splat: Splat | null) =>
+        changed('selectionChanged', {
+            layer: splat && (splat.type == null || splat.type === ElementType.splat) ? splat.uid : null
+        })
+    );
     events.on('splat.stateChanged', (splat: Splat) => changed('selectionChanged', { layer: splat.uid }));
     events.on('edit.apply', (op: EditOp) => {
         if (!isSelectionOp(op)) changed('documentChanged', { layer: (op as EditOp & { splat?: Splat }).splat?.uid });
@@ -322,7 +335,7 @@ const createEditorAPI = (events: Events, scene: Scene, editHistory: EditHistory,
                         ...session.read(),
                         timeline: timeline.summary(),
                         layers: allSplats().map(layerInfo),
-                        activeLayer: (events.invoke('selection') as Splat | null)?.uid ?? null,
+                        activeLayer: activeSplat()?.uid ?? null,
                         history: historyInfo()
                     };
                 }),
@@ -357,7 +370,7 @@ const createEditorAPI = (events: Events, scene: Scene, editHistory: EditHistory,
         },
         layers: {
             list: () => allSplats().map(layerInfo),
-            active: () => (events.invoke('selection') as Splat | null)?.uid ?? null,
+            active: () => activeSplat()?.uid ?? null,
             setActive: (id: LayerId | null) => events.fire('selection', id === null ? null : layerById(id)),
             setVisible: (id: LayerId, visible: boolean) => {
                 layerById(id).visible = visible;

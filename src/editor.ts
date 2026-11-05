@@ -48,7 +48,7 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
     // get the list of selected splats (currently limited to just a single one)
     const selectedSplats = () => {
         const selected = events.invoke('selection') as Splat;
-        return selected?.visible ? [selected] : [];
+        return selected?.visible && (selected.type == null || selected.type === ElementType.splat) ? [selected] : [];
     };
 
     let lastExportCursor = 0;
@@ -448,7 +448,7 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
     // returns true if the selected splat has selected gaussians
     events.function('selection.splats', () => {
         const splat = events.invoke('selection') as Splat;
-        return splat?.numSelected > 0;
+        return !!splat && (splat.type == null || splat.type === ElementType.splat) && splat.numSelected > 0;
     });
 
     // the UI entry points adapt to the editor API, which owns the commands:

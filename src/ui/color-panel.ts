@@ -287,8 +287,8 @@ class ColorPanel extends PanelSection {
         clipboardMenu.register(this.header, clipboard);
         Object.entries(rows).forEach(([key, row]) => clipboardMenu.register(row, clipboard, key));
 
-        events.on('selection.changed', (splat) => {
-            selected = splat;
+        events.on('selection.changed', (splat: Splat) => {
+            selected = splat?.type === 'splat' ? splat : null;
             // the pending grade belongs to the panel, not to a layer, but carrying it
             // across a selection change would silently retarget it
             setControls(NEUTRAL);

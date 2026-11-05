@@ -59,6 +59,7 @@ const registerBoundDimensionsOverlay = (
 
         if (
             !selection ||
+            selection.type !== 'splat' ||
             !selection.visible ||
             !events.invoke('camera.bound') ||
             !events.invoke('camera.boundDimensions')

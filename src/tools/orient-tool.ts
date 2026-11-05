@@ -266,7 +266,7 @@ class OrientTool {
                 // current transform handler remains in place)
                 events.fire('tool.deactivate');
             }
-            splat = selection;
+            splat = selection?.type === 'splat' ? selection : null;
         });
 
         events.on('pivot.moved', () => {

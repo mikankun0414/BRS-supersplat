@@ -175,7 +175,7 @@ class MeasureTool {
         });
 
         events.on('selection.changed', (selection: Splat) => {
-            splat = selection;
+            splat = selection?.type === 'splat' ? selection : null;
             if (active) {
                 // for now we always deactivate the tool so the current transform handler remains in place
                 events.fire('tool.deactivate');

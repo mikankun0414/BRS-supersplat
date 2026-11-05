@@ -1,11 +1,13 @@
-import { ReadFileSystem } from '@playcanvas/splat-transform';
-import { AppBase, Asset } from 'playcanvas';
+import type { ReadFileSystem } from '@playcanvas/splat-transform';
+import type { AppBase } from 'playcanvas';
+import { Asset } from 'playcanvas';
 
 import { EditorSplatResource } from './editor-splat-resource';
-import { Events } from './events';
+import type { Events } from './events';
 import { defaultLargeLoadTarget, defaultLodIndex, hasLoadProgress, largeLoadTargets, loadSplatSource } from './io';
 import { GltfModel } from './model';
-import { isGltfModel, ModelImportFile, prepareModelSource } from './model-loader';
+import { isGltfModel, prepareModelSource } from './model-loader';
+import type { ModelImportFile } from './model-loader';
 import { Splat } from './splat';
 import { i18n } from './ui/localization';
 
@@ -30,10 +32,12 @@ class AssetLoader {
         this.events.fire('startSpinner');
 
         let asset: Asset = null;
-        let cleanup = () => {};
+        let cleanup = () => {
+            // Replaced once the temporary model URL exists.
+        };
 
         try {
-            const mainFile = files.find(file => isGltfModel(file.filename));
+            const mainFile = files.find((file) => isGltfModel(file.filename));
             if (!mainFile) {
                 throw new Error('No glTF or GLB file was provided.');
             }
@@ -55,7 +59,9 @@ class AssetLoader {
             });
 
             const model = new GltfModel(asset, cleanup);
-            cleanup = () => {};
+            cleanup = () => {
+                // GltfModel now owns the temporary URL.
+            };
             return model;
         } catch (error) {
             if (asset) {
@@ -75,15 +81,27 @@ class AssetLoader {
         }
     }
 
-    async load(filename: string, fileSystem: ReadFileSystem, animationFrame?: boolean, skipReorder?: boolean) {
-        const loaded = await this.loadAsset(filename, fileSystem, animationFrame, skipReorder);
+    async load(
+        filename: string,
+        fileSystem: ReadFileSystem,
+        animationFrame?: boolean,
+        skipReorder?: boolean,
+        options?: { lod?: number }
+    ) {
+        const loaded = await this.loadAsset(filename, fileSystem, animationFrame, skipReorder, options);
         return loaded && new Splat(loaded.asset, loaded.rotation);
     }
 
     // Load the static tier only, without a layer over it. A .ssproj can have
     // several layers sharing one resource, so the document loader creates the
     // asset once here and then builds each layer's own instance list.
-    async loadAsset(filename: string, fileSystem: ReadFileSystem, animationFrame?: boolean, skipReorder?: boolean) {
+    async loadAsset(
+        filename: string,
+        fileSystem: ReadFileSystem,
+        animationFrame?: boolean,
+        skipReorder?: boolean,
+        options?: { lod?: number }
+    ) {
         // Animation frames load silently; everything else shows the progress
         // dialog: bytes read while the file is streamed in (when the file
         // system can count them), then the synchronous sort and GPU upload
@@ -101,9 +119,12 @@ class AssetLoader {
                 // per file: multi-file formats read one file after another
                 tracked.onProgress = (loaded, total, name) => {
                     const file = name.split('/').pop();
-                    this.events.fire('progressUpdate', total ?
-                        { text: `Reading ${file}`, progress: Math.min(100, 100 * loaded / total) } :
-                        { text: `Reading ${file} (${(loaded / 1048576).toFixed(0)} MB)`, progress: 0 });
+                    this.events.fire(
+                        'progressUpdate',
+                        total
+                            ? { text: `Reading ${file}`, progress: Math.min(100, (100 * loaded) / total) }
+                            : { text: `Reading ${file} (${(loaded / 1048576).toFixed(0)} MB)`, progress: 0 }
+                    );
                 };
             }
         }
@@ -144,10 +165,12 @@ class AssetLoader {
                 this.events.fire('progressEnd');
                 try {
                     const targets = largeLoadTargets(numGaussians);
-                    const options = (targets.length > 0 ? targets : [defaultLargeLoadTarget(numGaussians)]).map(count => ({
-                        v: String(count),
-                        t: `${i18n.formatInteger(count)} ${i18n.t('popup.lod-select-splats')}`
-                    }));
+                    const options = (targets.length > 0 ? targets : [defaultLargeLoadTarget(numGaussians)]).map(
+                        (count) => ({
+                            v: String(count),
+                            t: `${i18n.formatInteger(count)} ${i18n.t('popup.lod-select-splats')}`
+                        })
+                    );
                     options.push({
                         v: String(numGaussians),
                         t: `${i18n.formatInteger(numGaussians)} ${i18n.t('popup.lod-select-splats')} (Full)`
@@ -175,11 +198,19 @@ class AssetLoader {
             };
 
             // Skip reordering for animation frames (speed) or when explicitly requested (already ordered)
+            const chooseLod = options
+                ? (counts: readonly number[]) => {
+                      const lod = options.lod ?? defaultLodIndex(counts);
+                      if (!Number.isInteger(lod) || lod < 0 || lod >= counts.length)
+                          throw new Error('Requested LOD is unavailable');
+                      return Promise.resolve(lod);
+                  }
+                : pickLod;
             const result = await loadSplatSource(
                 filename,
                 fileSystem,
                 skipReorder || animationFrame,
-                animationFrame ? undefined : pickLod,
+                animationFrame ? undefined : chooseLod,
                 animationFrame ? undefined : pickLargeLoad
             );
             if (!result) {
@@ -187,9 +218,14 @@ class AssetLoader {
                 return null;
             }
             const { source, transform, reorder } = result;
-            const onPhase = showProgress ? (phase: 'sort' | 'upload') => {
-                this.events.fire('progressUpdate', { text: phase === 'sort' ? 'Sorting' : 'Uploading', progress: 100 });
-            } : undefined;
+            const onPhase = showProgress
+                ? (phase: 'sort' | 'upload') => {
+                      this.events.fire('progressUpdate', {
+                          text: phase === 'sort' ? 'Sorting' : 'Uploading',
+                          progress: 100
+                      });
+                  }
+                : undefined;
             const resource = await EditorSplatResource.create(this.app.graphicsDevice, source, reorder, onPhase);
             const asset = this.createGSplatAsset(resource, filename);
 

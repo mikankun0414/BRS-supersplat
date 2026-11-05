@@ -1,9 +1,10 @@
 import { Button, Container, Label } from '@playcanvas/pcui';
 
 import { ElementType } from '../element';
-import { Events } from '../events';
+import type { Events } from '../events';
+
 import { i18n } from './localization';
-import { Tooltips } from './tooltips';
+import type { Tooltips } from './tooltips';
 
 type MeshEditMode = 'vertex' | 'edge' | 'face';
 

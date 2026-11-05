@@ -1,20 +1,12 @@
-import {
-    Entity,
-    GraphNode,
-    Mat4,
-    Mesh,
-    Plane,
-    PRIMITIVE_TRIANGLES,
-    Ray,
-    TranslateGizmo,
-    Vec3
-} from 'playcanvas';
+import type { GraphNode, Mesh } from 'playcanvas';
+import { Entity, Mat4, Plane, PRIMITIVE_TRIANGLES, Ray, TranslateGizmo, Vec3 } from 'playcanvas';
 
 import { MeshEditOp } from '../edit-ops';
-import { Events } from '../events';
+import type { Events } from '../events';
 import { GltfModel } from '../model';
-import { Scene } from '../scene';
-import { OverlayWriter, ToolOverlay } from '../tool-overlay';
+import type { Scene } from '../scene';
+import type { OverlayWriter } from '../tool-overlay';
+import { ToolOverlay } from '../tool-overlay';
 
 type MeshEditMode = 'vertex' | 'edge' | 'face';
 
@@ -193,7 +185,11 @@ const buildEdges = (triangles: Triangle[]) => {
     const edgeSet = new Set<string>();
 
     triangles.forEach(({ a, b, c }) => {
-        [[a, b], [b, c], [c, a]].forEach(([from, to]) => {
+        [
+            [a, b],
+            [b, c],
+            [c, a]
+        ].forEach(([from, to]) => {
             const first = Math.min(from, to);
             const second = Math.max(from, to);
             const key = `${first}:${second}`;
@@ -325,8 +321,8 @@ class MeshEditTool {
             lineWidth: 3
         });
 
-        this.baseOverlay.provider = writer => this.writeBaseOverlay(writer);
-        this.selectionOverlay.provider = writer => this.writeSelectionOverlay(writer);
+        this.baseOverlay.provider = (writer) => this.writeBaseOverlay(writer);
+        this.selectionOverlay.provider = (writer) => this.writeSelectionOverlay(writer);
 
         this.gizmo.on('render:update', () => {
             this.scene.forceRender = true;
@@ -372,10 +368,10 @@ class MeshEditTool {
         // The gizmo listens on the canvas too. This handler is registered after
         // it, so a gizmo hit has already set dragging=true and is left alone;
         // component hits stop the camera controller from orbiting on selection.
-        this.canvas.addEventListener('pointerdown', event => this.onPointerDown(event as PointerEvent));
-        this.canvas.addEventListener('pointermove', event => this.onPointerMove(event as PointerEvent));
-        this.canvas.addEventListener('pointerup', event => this.onPointerUp(event as PointerEvent));
-        this.canvas.addEventListener('pointercancel', event => this.onPointerCancel(event as PointerEvent));
+        this.canvas.addEventListener('pointerdown', (event) => this.onPointerDown(event as PointerEvent));
+        this.canvas.addEventListener('pointermove', (event) => this.onPointerMove(event as PointerEvent));
+        this.canvas.addEventListener('pointerup', (event) => this.onPointerUp(event as PointerEvent));
+        this.canvas.addEventListener('pointercancel', (event) => this.onPointerCancel(event as PointerEvent));
 
         events.fire('meshEdit.mode', this.mode);
         events.fire('meshEdit.selectionChanged', { mode: this.mode, count: 0 });
@@ -426,9 +422,9 @@ class MeshEditTool {
 
     private updateGizmoSize() {
         const { camera, canvas } = this.scene;
-        this.gizmo.size = camera.ortho ?
-            1125 / Math.max(1, canvas.clientHeight) :
-            1200 / Math.max(1, Math.max(canvas.clientWidth, canvas.clientHeight));
+        this.gizmo.size = camera.ortho
+            ? 1125 / Math.max(1, canvas.clientHeight)
+            : 1200 / Math.max(1, Math.max(canvas.clientWidth, canvas.clientHeight));
     }
 
     private rebuildRecords() {
@@ -515,7 +511,7 @@ class MeshEditTool {
                 targets.set(record.mesh, target);
             }
 
-            indices.forEach(index => target.indices.add(index));
+            indices.forEach((index) => target.indices.add(index));
         });
 
         if (includeConnected && targets.size > 0) {
@@ -530,7 +526,7 @@ class MeshEditTool {
             };
             const selectedPositions = new Set<string>();
             targets.forEach((target) => {
-                target.indices.forEach(index => selectedPositions.add(positionKey(target.record, index)));
+                target.indices.forEach((index) => selectedPositions.add(positionKey(target.record, index)));
             });
             this.records.forEach((record) => {
                 for (let index = 0; index < record.positions.length / 3; index++) {
@@ -615,9 +611,13 @@ class MeshEditTool {
     }
 
     private onPointerDown(event: PointerEvent) {
-        if (!this.active || !this.model || this.dragging ||
+        if (
+            !this.active ||
+            !this.model ||
+            this.dragging ||
             (event.pointerType === 'mouse' && event.button !== 0) ||
-            (event.pointerType !== 'mouse' && !event.isPrimary)) {
+            (event.pointerType !== 'mouse' && !event.isPrimary)
+        ) {
             return;
         }
 
@@ -673,8 +673,11 @@ class MeshEditTool {
             return;
         }
 
-        if (!this.directDragMoved &&
-            Math.hypot(event.offsetX - this.directDragStartX, event.offsetY - this.directDragStartY) < DIRECT_DRAG_THRESHOLD) {
+        if (
+            !this.directDragMoved &&
+            Math.hypot(event.offsetX - this.directDragStartX, event.offsetY - this.directDragStartY) <
+                DIRECT_DRAG_THRESHOLD
+        ) {
             return;
         }
 
@@ -744,9 +747,12 @@ class MeshEditTool {
 
     private pick(x: number, y: number): ComponentHit | null {
         switch (this.mode) {
-            case 'vertex': return this.pickVertex(x, y);
-            case 'edge': return this.pickEdge(x, y);
-            case 'face': return this.pickFace(x, y);
+            case 'vertex':
+                return this.pickVertex(x, y);
+            case 'edge':
+                return this.pickEdge(x, y);
+            case 'face':
+                return this.pickFace(x, y);
         }
     }
 
@@ -813,8 +819,10 @@ class MeshEditTool {
 
                 const result = distanceToSegmentSquared(x, y, screenA, screenB);
                 const depth = depthA + (depthB - depthA) * result.t;
-                if (result.distanceSq <= bestDistance &&
-                    (result.distanceSq < bestDistance - 1e-6 || depth < bestDepth)) {
+                if (
+                    result.distanceSq <= bestDistance &&
+                    (result.distanceSq < bestDistance - 1e-6 || depth < bestDepth)
+                ) {
                     best = { record, index };
                     bestDistance = result.distanceSq;
                     bestDepth = depth;
@@ -863,10 +871,7 @@ class MeshEditTool {
             const count = Math.min(record.edges.length, MAX_DISPLAY_EDGES);
             for (let index = 0; index < count; index++) {
                 const edge = record.edges[index];
-                writer.segment(
-                    getWorldPoint(record, edge.a, worldA),
-                    getWorldPoint(record, edge.b, worldB)
-                );
+                writer.segment(getWorldPoint(record, edge.a, worldA), getWorldPoint(record, edge.b, worldB));
             }
         });
     }
@@ -883,10 +888,7 @@ class MeshEditTool {
                 } else if (this.mode === 'edge') {
                     const edge = record.edges[component];
                     if (edge) {
-                        writer.segment(
-                            getWorldPoint(record, edge.a, worldA),
-                            getWorldPoint(record, edge.b, worldB)
-                        );
+                        writer.segment(getWorldPoint(record, edge.a, worldA), getWorldPoint(record, edge.b, worldB));
                     }
                 } else {
                     const triangle = record.triangles[component];
@@ -988,14 +990,14 @@ class MeshEditTool {
         }
 
         const model = this.model;
-        const changes = this.dragTargets.map(target => ({
+        const changes = this.dragTargets.map((target) => ({
             mesh: target.mesh,
             before: target.before,
             after: target.after,
             beforeNormals: target.beforeNormals,
             afterNormals: target.afterNormals
         }));
-        const changed = changes.some(change => !change.before.every((value, index) => value === change.after[index]));
+        const changed = changes.some((change) => !change.before.every((value, index) => value === change.after[index]));
 
         this.dragging = false;
         this.dragTargets = [];

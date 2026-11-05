@@ -5,15 +5,16 @@
 
 import type { FileSystem, Writer } from '@playcanvas/splat-transform';
 
-import { StagingFileSystem } from './staging-file-system';
 import { i18n } from '../../ui/localization';
+
+import { StagingFileSystem } from './staging-file-system';
 
 /**
  * Writer implementation for FileSystemWritableFileStream (File System Access API).
  */
 class BrowserFileWriter implements Writer {
     private stream: FileSystemWritableFileStream;
-    private cursor: number = 0;
+    private cursor = 0;
     private ready: Promise<void>;
 
     constructor(stream: FileSystemWritableFileStream) {
@@ -39,7 +40,9 @@ class BrowserFileWriter implements Writer {
 
     async abort(): Promise<void> {
         try {
-            await this.ready.catch(() => {});
+            await this.ready.catch(() => {
+                // The stream seek may already have failed.
+            });
             await this.stream.abort();
         } catch {
             // already failing — ignore
@@ -61,7 +64,19 @@ const triggerDownload = (blob: Blob, filename: string, cleanup: () => Promise<vo
     if (!controls) {
         controls = document.createElement('div');
         controls.id = 'download-cleanup';
-        Object.assign(controls.style, { position: 'fixed', bottom: '64px', right: '16px', zIndex: '10000', maxWidth: '360px', maxHeight: '50vh', overflow: 'auto', color: '#eee', background: '#333', padding: '12px', borderRadius: '4px' });
+        Object.assign(controls.style, {
+            position: 'fixed',
+            bottom: '64px',
+            right: '16px',
+            zIndex: '10000',
+            maxWidth: '360px',
+            maxHeight: '50vh',
+            overflow: 'auto',
+            color: '#eee',
+            background: '#333',
+            padding: '12px',
+            borderRadius: '4px'
+        });
         document.body.appendChild(controls);
     }
     const notice = document.createElement('div');
@@ -95,15 +110,12 @@ const triggerDownload = (blob: Blob, filename: string, cleanup: () => Promise<vo
     // create a "fake" click-event to trigger the download
     if (document.createEvent) {
         const e = document.createEvent('MouseEvents');
-        e.initMouseEvent('click', true, true, window,
-            0, 0, 0, 0, 0, false, false, false,
-            false, 0, null);
+        e.initMouseEvent('click', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
         lnk.dispatchEvent(e);
     } else {
-        // @ts-ignore
-        lnk.fireEvent?.('onclick');
+        // legacy IE event api
+        (lnk as HTMLAnchorElement & { fireEvent?: (type: string) => void }).fireEvent?.('onclick');
     }
-
 };
 
 /** Download via an OPFS File snapshot, or bounded Blob parts on older browsers. */
@@ -113,9 +125,12 @@ class BrowserDownloadWriter implements Writer {
     private count = 0;
     private stopped = false;
 
-    constructor(private filename: string) {
+    constructor(
+        private filename: string,
+        private signal?: AbortSignal
+    ) {
         this.staging = StagingFileSystem.create();
-        this.inner = this.staging.then(fs => fs.createWriter(filename));
+        this.inner = this.staging.then((fs) => fs.createWriter(filename));
     }
 
     get bytesWritten(): number {
@@ -123,16 +138,19 @@ class BrowserDownloadWriter implements Writer {
     }
 
     async write(data: Uint8Array): Promise<void> {
+        this.signal?.throwIfAborted();
         if (this.stopped) throw new Error('Download writer is closed');
         try {
             await (await this.inner).write(data);
             this.count += data.length;
         } catch (error) {
-            await this.abort(); throw error;
+            await this.abort();
+            throw error;
         }
     }
 
     async close(): Promise<void> {
+        this.signal?.throwIfAborted();
         if (this.stopped) throw new Error('Download writer is closed');
         try {
             await (await this.inner).close();
@@ -141,15 +159,24 @@ class BrowserDownloadWriter implements Writer {
             triggerDownload(blob, this.filename, () => staging.dispose());
             this.stopped = true;
         } catch (error) {
-            await this.abort(); throw error;
+            await this.abort();
+            throw error;
         }
     }
 
     async abort(): Promise<void> {
         if (this.stopped) return;
         this.stopped = true;
-        await this.inner.then(writer => writer.abort()).catch(() => {});
-        await this.staging.then(fs => fs.dispose()).catch(() => {});
+        await this.inner
+            .then((writer) => writer.abort())
+            .catch(() => {
+                // The download writer may already be closed.
+            });
+        await this.staging
+            .then((fs) => fs.dispose())
+            .catch(() => {
+                // Staging may already be gone.
+            });
     }
 }
 
@@ -166,7 +193,11 @@ class BrowserFileSystem implements FileSystem {
      * @param filename - The filename for downloads (fallback mode)
      * @param stream - Optional FileSystemWritableFileStream for direct file access
      */
-    constructor(filename: string, stream?: FileSystemWritableFileStream) {
+    constructor(
+        filename: string,
+        stream?: FileSystemWritableFileStream,
+        private signal?: AbortSignal
+    ) {
         this.filename = filename;
         this.stream = stream;
     }
@@ -175,7 +206,7 @@ class BrowserFileSystem implements FileSystem {
         if (this.stream) {
             return new BrowserFileWriter(this.stream);
         }
-        return new BrowserDownloadWriter(this.filename);
+        return new BrowserDownloadWriter(this.filename, this.signal);
     }
 
     mkdir(_path: string): Promise<void> {

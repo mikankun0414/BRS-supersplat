@@ -1,12 +1,13 @@
-import { Mat4, Quat, Vec3 } from 'playcanvas';
+import type { Vec3 } from 'playcanvas';
+import { Mat4, Quat } from 'playcanvas';
 
 import { PlacePivotOp, EntityTransformOp, MultiOp } from './edit-ops';
-import { Events } from './events';
+import type { Events } from './events';
 import type { GltfModel } from './model';
-import { Pivot } from './pivot';
-import { Splat } from './splat';
+import type { Pivot } from './pivot';
+import type { Splat } from './splat';
 import { Transform } from './transform';
-import { TransformHandler } from './transform-handler';
+import type { TransformHandler } from './transform-handler';
 
 const mat = new Mat4();
 const quat = new Quat();
@@ -22,7 +23,7 @@ class EntityTransformHandler implements TransformHandler {
     constructor(events: Events) {
         this.events = events;
 
-        events.on('pivot.started', (pivot: Pivot) => {
+        events.on('pivot.started', () => {
             if (this.splat) {
                 this.start();
             }
@@ -34,7 +35,7 @@ class EntityTransformHandler implements TransformHandler {
             }
         });
 
-        events.on('pivot.ended', (pivot: Pivot) => {
+        events.on('pivot.ended', () => {
             if (this.splat) {
                 this.end();
             }
@@ -46,7 +47,7 @@ class EntityTransformHandler implements TransformHandler {
             }
         });
 
-        events.on('camera.focalPointPicked', (details: { splat: Splat, position: Vec3 }) => {
+        events.on('camera.focalPointPicked', (details: { splat: Splat; position: Vec3 }) => {
             if (this.splat && ['move', 'rotate', 'scale'].includes(this.events.invoke('tool.active'))) {
                 const pivot = events.invoke('pivot') as Pivot;
                 const newt = new Transform(details.position, pivot.transform.rotation, pivot.transform.scale);

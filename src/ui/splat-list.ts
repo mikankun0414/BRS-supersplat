@@ -1,10 +1,12 @@
 import { Container, Label, Element as PcuiElement, TextInput } from '@playcanvas/pcui';
 
 import { SplatRenameOp } from '../edit-ops';
-import { Element, ElementType } from '../element';
-import { Events } from '../events';
-import { GltfModel } from '../model';
-import { Splat } from '../splat';
+import { ElementType } from '../element';
+import type { Element } from '../element';
+import type { Events } from '../events';
+import type { GltfModel } from '../model';
+import type { Splat } from '../splat';
+
 import deleteSvg from './svg/delete.svg';
 import hiddenSvg from './svg/hidden.svg';
 import shownSvg from './svg/shown.svg';

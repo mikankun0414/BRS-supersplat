@@ -2,7 +2,7 @@
  * Unified loader for all splat file formats using splat-transform.
  */
 
-import {
+import type {
     ChunkData,
     ChunkLayer,
     ChunkSource,
@@ -10,12 +10,9 @@ import {
     Options,
     ReadFileSystem,
     ReadRequest,
-    Transform,
-    createChunkDataPool,
-    getInputFormat,
-    readFile,
-    selectLod
+    Transform
 } from '@playcanvas/splat-transform';
+import { createChunkDataPool, getInputFormat, readFile, selectLod } from '@playcanvas/splat-transform';
 
 import { createUniformSubsetSource } from './uniform-subset-source';
 import { ZipReadFileSystem } from './zip-file-system';
@@ -46,12 +43,12 @@ const LARGE_LOAD_TARGETS = [1_000_000, 5_000_000, 10_000_000, 20_000_000];
 const LARGE_LOAD_DEFAULT = 5_000_000;
 
 const largeLoadTargets = (numGaussians: number): number[] => {
-    return LARGE_LOAD_TARGETS.filter(t => t < numGaussians);
+    return LARGE_LOAD_TARGETS.filter((t) => t < numGaussians);
 };
 
 const defaultLargeLoadTarget = (numGaussians: number): number => {
     const targets = largeLoadTargets(numGaussians);
-    const safe = targets.filter(t => t <= LARGE_LOAD_DEFAULT);
+    const safe = targets.filter((t) => t <= LARGE_LOAD_DEFAULT);
     return safe[safe.length - 1] ?? targets[0] ?? Math.max(1, numGaussians - 1);
 };
 
@@ -59,7 +56,7 @@ const defaultLargeLoadTarget = (numGaussians: number): number => {
 // when all levels exceed it
 const defaultLodIndex = (lodCounts: readonly number[]) => {
     const candidates = lodCounts.map((count, index) => ({ count, index }));
-    const under = candidates.filter(c => c.count < LOD_MAX_SPLATS);
+    const under = candidates.filter((c) => c.count < LOD_MAX_SPLATS);
     if (under.length > 0) {
         return under.reduce((a, b) => (b.count > a.count ? b : a)).index;
     }
@@ -86,7 +83,10 @@ const defaultOptions: Options = {
 class PermutedChunkSource implements ChunkSource {
     readonly meta: ChunkSourceMetadata;
 
-    constructor(readonly parent: ChunkSource, readonly order: Uint32Array) {
+    constructor(
+        readonly parent: ChunkSource,
+        readonly order: Uint32Array
+    ) {
         this.meta = {
             ...parent.meta,
             numGaussians: order.length,
@@ -135,7 +135,10 @@ class OwnedChunkSource implements ChunkSource {
     readonly meta: ChunkSourceMetadata;
     private closed = false;
 
-    constructor(private readonly parent: ChunkSource, private readonly onClose: () => void | Promise<void>) {
+    constructor(
+        private readonly parent: ChunkSource,
+        private readonly onClose: () => void | Promise<void>
+    ) {
         this.meta = parent.meta;
     }
 
@@ -169,9 +172,11 @@ const selectFirst = async (sources: ChunkSource[], pickLod?: PickLod) => {
 
 const validateSplatSource = (source: ChunkSource): void => {
     const required: ChunkLayer[] = ['position', 'geometric', 'color'];
-    const missing = required.filter(layer => !source.meta.availableLayers.has(layer));
+    const missing = required.filter((layer) => !source.meta.availableLayers.has(layer));
     if (missing.length > 0) {
-        throw new Error(`This file does not contain gaussian splatting data. The following layers are missing: ${missing.join(', ')}`);
+        throw new Error(
+            `This file does not contain gaussian splatting data. The following layers are missing: ${missing.join(', ')}`
+        );
     }
 };
 
@@ -228,9 +233,9 @@ const loadSplatSource = async (
 
         // Prompt for preview size when a single-LOD source exceeds the safety threshold.
         if (source.meta.numLods <= 1 && source.meta.numGaussians > LARGE_LOAD_THRESHOLD) {
-            const target = pickLargeLoad ?
-                await pickLargeLoad(source.meta.numGaussians) :
-                defaultLargeLoadTarget(source.meta.numGaussians);
+            const target = pickLargeLoad
+                ? await pickLargeLoad(source.meta.numGaussians)
+                : defaultLargeLoadTarget(source.meta.numGaussians);
             if (target === null) {
                 await source.close();
                 return null;

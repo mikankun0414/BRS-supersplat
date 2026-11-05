@@ -142,8 +142,17 @@ const fixture = () => {
         camera: {
             mainCamera: new pc.Entity(), camera: { orthoHeight: 4 }, near: 0.1, far: 100,
             intersect: async (x, y) => { picks.push([x, y]); return scene.pickResult; },
-            intersectMany: async (points, splats, pose) => {
-                poses.push(pose);
+            captureFrame() {
+                return {
+                    position: this.mainCamera.getPosition().clone(),
+                    rotation: this.mainCamera.getRotation().clone(),
+                    orthoHeight: this.camera.orthoHeight,
+                    near: this.near,
+                    far: this.far
+                };
+            },
+            pickDepths: async (_ctx, frame, points) => {
+                poses.push(frame);
                 return Promise.all(points.map(({ x, y }) => scene.camera.intersect(x, y)));
             }
         },

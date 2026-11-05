@@ -1,3 +1,4 @@
+import type { BoundingBox, Quat } from 'playcanvas';
 import {
     math,
     ADDRESS_CLAMP_TO_EDGE,
@@ -18,12 +19,10 @@ import {
     TONEMAP_HEJL,
     TONEMAP_LINEAR,
     TONEMAP_NEUTRAL,
-    BoundingBox,
     BlendState,
     Color,
     Entity,
     Mat4,
-    Quat,
     Ray,
     RenderPass,
     RenderPassForward,
@@ -33,13 +32,14 @@ import {
     Vec4
 } from 'playcanvas';
 
+import type { CommandContext } from './command-queue';
 import { PointerController } from './controllers';
 import { Element, ElementType } from './element';
 import { Picker } from './picker';
-import { Serializer } from './serializer';
+import type { Serializer } from './serializer';
 import { vertexShader, fragmentShader } from './shaders/blit-shader';
 import { fragmentShader as stochasticResolveShader } from './shaders/stochastic-warp-resolve-shader';
-import { Splat } from './splat';
+import type { Splat } from './splat';
 import { TweenValue } from './tween-value';
 import { ShaderQuad, SimpleRenderPass } from './utils/simple-render-pass';
 
@@ -49,6 +49,34 @@ const cameraPosition = new Vec3();
 const ray = new Ray();
 const vec = new Vec3();
 const vecb = new Vec3();
+const vec4 = new Vec4();
+const invViewProj = new Mat4();
+
+// snapshot of everything a pick or screen-space selection depends on, taken
+// at gesture time so work that runs from the command queue later sees the
+// camera and target the user saw. Treated as immutable: readonly doesn't
+// protect the vectors and matrices, so consumers must not mutate them.
+type CameraFrame = {
+    readonly position: Vec3;
+    readonly rotation: Quat;
+    readonly fov: number;
+    readonly ortho: boolean;
+    readonly orthoHeight: number;
+    readonly near: number;
+    readonly far: number;
+    readonly horizontalFov: boolean;
+    readonly aspectRatio: number;
+    // the camera component's matrices (GL clip range; shaders apply
+    // Camera.applyShaderProjectionTransform as the frame loop does)
+    readonly projection: Mat4;
+    readonly view: Mat4;
+    // css pixels govern brush radii; render-target pixels govern picking and
+    // packed selection regions
+    readonly viewport: { readonly width: number; readonly height: number };
+    readonly target: { readonly width: number; readonly height: number };
+    // world size of one css pixel at view depth 1 (depth-independent in ortho)
+    readonly pixelScale: number;
+};
 const va = new Vec3();
 const m = new Mat4();
 const v4 = new Vec4();
@@ -117,12 +145,12 @@ class Camera extends Element {
     finalPass: SimpleRenderPass;
 
     // overridden target size
-    targetSizeOverride: { width: number, height: number } = null;
+    targetSizeOverride: { width: number; height: number } = null;
 
     // when set, overrides the tween-driven pose, fov and clipping planes each
     // update (used by 360 capture to render arbitrary face orientations that
     // the azim/elev pose system cannot express)
-    poseOverride: { position: Vec3, rotation: Quat, fov: number, near: number, far: number } | null = null;
+    poseOverride: { position: Vec3; rotation: Quat; fov: number; near: number; far: number } | null = null;
 
     // world transform of the user-facing camera pose. while a pose override
     // is active this holds the last tween-driven pose, so ui elements (view
@@ -183,12 +211,18 @@ class Camera extends Element {
 
     get tonemapping() {
         switch (this.camera.toneMapping) {
-            case TONEMAP_LINEAR: return 'linear';
-            case TONEMAP_NEUTRAL: return 'neutral';
-            case TONEMAP_ACES: return 'aces';
-            case TONEMAP_ACES2: return 'aces2';
-            case TONEMAP_FILMIC: return 'filmic';
-            case TONEMAP_HEJL: return 'hejl';
+            case TONEMAP_LINEAR:
+                return 'linear';
+            case TONEMAP_NEUTRAL:
+                return 'neutral';
+            case TONEMAP_ACES:
+                return 'aces';
+            case TONEMAP_ACES2:
+                return 'aces2';
+            case TONEMAP_FILMIC:
+                return 'filmic';
+            case TONEMAP_HEJL:
+                return 'hejl';
         }
         return 'linear';
     }
@@ -234,7 +268,7 @@ class Camera extends Element {
         return this.distanceTween.target.distance;
     }
 
-    setFocalPoint(point: Vec3, dampingFactorFactor: number = 1) {
+    setFocalPoint(point: Vec3, dampingFactorFactor = 1) {
         this.lookCameraPos = null;
         this.focalPointTween.goto(point, dampingFactorFactor * this.scene.config.controls.dampingFactor);
     }
@@ -242,7 +276,7 @@ class Camera extends Element {
     // Fly mode: rotate camera around itself, keeping the camera position fixed
     look(dx: number, dy: number) {
         const sensitivity = this.scene.config.controls.orbitSensitivity;
-        const d = this.distance * this.sceneRadius / this.fovFactor;
+        const d = (this.distance * this.sceneRadius) / this.fovFactor;
 
         Camera.calcForwardVec(forwardVec, this.azim, this.elevation);
         const cameraPos = this.focalPoint.add(forwardVec.clone().mulScalar(d));
@@ -258,7 +292,7 @@ class Camera extends Element {
         this.lookCameraPos = cameraPos;
     }
 
-    setAzimElev(azim: number, elev: number, dampingFactorFactor: number = 1) {
+    setAzimElev(azim: number, elev: number, dampingFactorFactor = 1) {
         // clamp
         azim = mod(azim, 360);
         elev = Math.max(this.minElev, Math.min(this.maxElev, elev));
@@ -277,7 +311,7 @@ class Camera extends Element {
         this.ortho = false;
     }
 
-    setDistance(distance: number, dampingFactorFactor: number = 1) {
+    setDistance(distance: number, dampingFactorFactor = 1) {
         this.lookCameraPos = null;
 
         const controls = this.scene.config.controls;
@@ -289,14 +323,14 @@ class Camera extends Element {
         t.goto({ distance }, dampingFactorFactor * controls.dampingFactor);
     }
 
-    setPose(position: Vec3, target: Vec3, dampingFactorFactor: number = 1) {
+    setPose(position: Vec3, target: Vec3, dampingFactorFactor = 1) {
         vec.sub2(target, position);
         const l = vec.length();
         const azim = Math.atan2(-vec.x / l, -vec.z / l) * math.RAD_TO_DEG;
         const elev = Math.asin(vec.y / l) * math.RAD_TO_DEG;
         this.setFocalPoint(target, dampingFactorFactor);
         this.setAzimElev(azim, elev, dampingFactorFactor);
-        this.setDistance(l / this.sceneRadius * this.fovFactor, dampingFactorFactor);
+        this.setDistance((l / this.sceneRadius) * this.fovFactor, dampingFactorFactor);
     }
 
     // set or clear the pose override and apply it immediately so subsequent
@@ -314,8 +348,8 @@ class Camera extends Element {
         v4.set(world.x, world.y, world.z, 1);
         m.transformVec4(v4, v4);
 
-        screen.x = v4.x / v4.w * 0.5 + 0.5;
-        screen.y = 1.0 - (v4.y / v4.w * 0.5 + 0.5);
+        screen.x = (v4.x / v4.w) * 0.5 + 0.5;
+        screen.y = 1.0 - ((v4.y / v4.w) * 0.5 + 0.5);
         screen.z = v4.z / v4.w;
     }
 
@@ -349,16 +383,20 @@ class Camera extends Element {
         this.splatPass = new RenderPassForward(device, composition, app.scene, renderer);
         this.stochasticSplatPass = new RenderPassForward(device, composition, app.scene, renderer);
         this.warpSplatPass = new RenderPassForward(device, composition, app.scene, renderer);
-        this.stochasticResolvePass = new SimpleRenderPass(device,
-            new ShaderQuad(device, vertexShader, stochasticResolveShader, 'stochastic-resolve'), {
+        this.stochasticResolvePass = new SimpleRenderPass(
+            device,
+            new ShaderQuad(device, vertexShader, stochasticResolveShader, 'stochastic-resolve'),
+            {
                 blendState: new BlendState(true, BLENDEQUATION_ADD, BLENDMODE_ONE, BLENDMODE_ONE_MINUS_SRC_ALPHA),
                 vars: () => ({
                     srcTexture: this.stochasticTarget.colorBuffer,
                     // Zero bypasses undistortion without changing splat projection.
-                    warpStrength: scene.warpedRender && scene.stochastic.undistort ? scene.stochastic.warpStrength - 1 : 0,
+                    warpStrength:
+                        scene.warpedRender && scene.stochastic.undistort ? scene.stochastic.warpStrength - 1 : 0,
                     quadResolve: scene.stochastic.resolve ? 1 : 0
                 })
-            });
+            }
+        );
         this.gizmoPass = new RenderPassForward(device, composition, app.scene, renderer);
         // compute-only pass between the splat and gizmo passes - never given a
         // render target, so RenderPass.render runs it without opening one. It
@@ -367,8 +405,10 @@ class Camera extends Element {
         this.depthReducePass = new RenderPass(device);
         this.depthReducePass.name = 'depthReduce';
         this.depthReducePass.execute = () => scene.projectedSplatRenderer.reduceDepth();
-        this.finalPass = new SimpleRenderPass(device,
-            new ShaderQuad(device, vertexShader, fragmentShader, 'final-blit'), {
+        this.finalPass = new SimpleRenderPass(
+            device,
+            new ShaderQuad(device, vertexShader, fragmentShader, 'final-blit'),
+            {
                 vars: () => {
                     const gd = this.scene.graphicsDevice;
                     const ts = this.targetSize;
@@ -379,7 +419,8 @@ class Camera extends Element {
                         overdraw: this.scene.overdrawRender ? 1 : 0
                     };
                 }
-            });
+            }
+        );
 
         const target = document.getElementById('canvas-container');
         this.controller = new PointerController(this, target);
@@ -511,18 +552,13 @@ class Camera extends Element {
     // also update the existing camera distance to maintain the current view
     onBoundChanged(bound: BoundingBox) {
         const prevDistance = this.distanceTween.value.distance * this.sceneRadius;
-        this.sceneRadius = Math.max(1e-03, bound.halfExtents.length());
+        this.sceneRadius = Math.max(1e-3, bound.halfExtents.length());
         this.setDistance(prevDistance / this.sceneRadius, 0);
     }
 
     serialize(serializer: Serializer) {
         serializer.packa(this.worldTransform.data);
-        serializer.pack(
-            this.fov,
-            this.tonemapping,
-            this.targetSize.width,
-            this.targetSize.height
-        );
+        serializer.pack(this.fov, this.tonemapping, this.targetSize.width, this.targetSize.height);
     }
 
     // handle the viewer canvas resizing
@@ -567,8 +603,8 @@ class Camera extends Element {
             // create MRT render target for splat pass
             this.splatTarget = new RenderTarget({
                 colorBuffers: [
-                    colorBuffer,        // RT0: main color (shared)
-                    workBuffer          // RT1: overlay output (shared with workTarget)
+                    colorBuffer, // RT0: main color (shared)
+                    workBuffer // RT1: overlay output (shared with workTarget)
                 ],
                 depthBuffer,
                 autoResolve: false
@@ -639,9 +675,19 @@ class Camera extends Element {
             this.finalPass.init(null);
 
             // assign render passes to camera
-            this.camera.framePasses = [this.clearPass, this.stochasticClearPass, this.mainPass, this.splatPass,
-                this.stochasticSplatPass, this.warpClearPass, this.warpSplatPass, this.depthReducePass, this.stochasticResolvePass,
-                this.gizmoPass, this.finalPass];
+            this.camera.framePasses = [
+                this.clearPass,
+                this.stochasticClearPass,
+                this.mainPass,
+                this.splatPass,
+                this.stochasticSplatPass,
+                this.warpClearPass,
+                this.warpSplatPass,
+                this.depthReducePass,
+                this.stochasticResolvePass,
+                this.gizmoPass,
+                this.finalPass
+            ];
         } else {
             // resize existing render targets
             const { splatTarget, colorTarget, workTarget } = this;
@@ -680,8 +726,8 @@ class Camera extends Element {
             }
         } else {
             cameraPosition.copy(forwardVec);
-            cameraPosition.mulScalar(distance.distance * this.sceneRadius / this.fovFactor);
-            cameraPosition.add(this.focalPointTween.value);
+            cameraPosition.mulScalar((distance.distance * this.sceneRadius) / this.fovFactor);
+            cameraPosition.add(this.focalPointTween.value as Vec3);
         }
 
         if (this.poseOverride) {
@@ -705,7 +751,10 @@ class Camera extends Element {
         const { targetSize } = this;
 
         // update ortho height
-        camera.orthoHeight = this.distanceTween.value.distance * this.sceneRadius / this.fovFactor * (this.fov / 90) * (camera.horizontalFov ? targetSize.height / targetSize.width : 1);
+        camera.orthoHeight =
+            ((this.distanceTween.value.distance * this.sceneRadius) / this.fovFactor) *
+            (this.fov / 90) *
+            (camera.horizontalFov ? targetSize.height / targetSize.width : 1);
         camera.camera._updateViewProjMat();
     }
 
@@ -770,10 +819,10 @@ class Camera extends Element {
     }
 
     onPostRender() {
-
+        // no-op
     }
 
-    focus(options?: { focalPoint: Vec3, radius: number, speed: number }) {
+    focus(options?: { focalPoint: Vec3; radius: number; speed: number }) {
         const getSplatFocalPoint = () => {
             for (const element of this.scene.elements) {
                 if (element.type === ElementType.splat) {
@@ -803,110 +852,187 @@ class Camera extends Element {
     // world size of one screen pixel at the given view depth (ortho is
     // depth-independent)
     worldSizePerPixel(depth: number) {
-        const pixelScale = (2 / this.camera.projectionMatrix.data[5]) / Math.max(1, this.scene.canvas.clientHeight);
+        const pixelScale = 2 / this.camera.projectionMatrix.data[5] / Math.max(1, this.scene.canvas.clientHeight);
         return this.ortho ? pixelScale : pixelScale * depth;
     }
 
-    getRay(screenX: number, screenY: number, ray: Ray) {
-        const { camera, ortho } = this;
-        const cameraPos = this.mainCamera.getPosition();
+    captureFrame(): CameraFrame {
+        const { camera, mainCamera, scene } = this;
+        const { width, height } = this.targetSize;
+        // the camera can have moved since the last rendered frame (held or
+        // skipped frames still run onUpdate) and the component only dirties
+        // its cached view matrix in this prerender hook, so refresh it or the
+        // captured view can disagree with the pose
+        camera.onAppPrerender();
+        return {
+            position: mainCamera.getPosition().clone(),
+            rotation: mainCamera.getRotation().clone(),
+            fov: camera.fov,
+            ortho: this.ortho,
+            orthoHeight: camera.orthoHeight,
+            near: camera.nearClip,
+            far: camera.farClip,
+            horizontalFov: camera.horizontalFov,
+            aspectRatio: camera.aspectRatio,
+            projection: camera.projectionMatrix.clone(),
+            view: camera.viewMatrix.clone(),
+            viewport: { width: scene.canvas.clientWidth, height: scene.canvas.clientHeight },
+            target: { width, height },
+            pixelScale: this.worldSizePerPixel(1)
+        };
+    }
 
-        // create the pick ray in world space
-        if (ortho) {
-            camera.screenToWorld(screenX, screenY, -1.0, vec);
-            camera.screenToWorld(screenX, screenY, 1.0, vecb);
-            vecb.sub(vec).normalize();
-            ray.set(vec, vecb);
-        } else {
-            camera.screenToWorld(screenX, screenY, 1.0, vec);
-            vec.sub(cameraPos).normalize();
-            ray.set(cameraPos, vec);
+    // run fn with the engine camera set to the frame and restore it before
+    // returning. The pick passes (the projector's sorted re-projection and
+    // RenderPassPicker) read the engine camera directly and can't take
+    // matrices, so this is how a captured frame reaches them. Synchronous
+    // only: the live camera is never left swapped across an await.
+    withFrame(frame: CameraFrame, fn: () => void) {
+        const { camera, mainCamera } = this;
+        const livePosition = mainCamera.getPosition().clone();
+        const liveRotation = mainCamera.getRotation().clone();
+        const live = {
+            fov: camera.fov,
+            projection: camera.projection,
+            orthoHeight: camera.orthoHeight,
+            nearClip: camera.nearClip,
+            farClip: camera.farClip,
+            horizontalFov: camera.horizontalFov,
+            aspectRatio: camera.aspectRatio
+        };
+        // the component's fields directly: the ortho setter fires an event
+        mainCamera.setPosition(frame.position);
+        mainCamera.setRotation(frame.rotation);
+        camera.fov = frame.fov;
+        camera.projection = frame.ortho ? PROJECTION_ORTHOGRAPHIC : PROJECTION_PERSPECTIVE;
+        camera.orthoHeight = frame.orthoHeight;
+        camera.nearClip = frame.near;
+        camera.farClip = frame.far;
+        camera.horizontalFov = frame.horizontalFov;
+        camera.aspectRatio = frame.aspectRatio;
+        // the component caches its view matrix and only dirties it in this
+        // prerender hook, once per rendered frame, so a pose set here would
+        // otherwise read as the previous frame's view
+        camera.onAppPrerender();
+        try {
+            fn();
+        } finally {
+            mainCamera.setPosition(livePosition);
+            mainCamera.setRotation(liveRotation);
+            camera.fov = live.fov;
+            camera.projection = live.projection;
+            camera.orthoHeight = live.orthoHeight;
+            camera.nearClip = live.nearClip;
+            camera.farClip = live.farClip;
+            camera.horizontalFov = live.horizontalFov;
+            camera.aspectRatio = live.aspectRatio;
+            camera.onAppPrerender();
         }
     }
 
-    // intersect the scene at normalized screen coordinates (0-1 range) using
-    // depth picking. The depth pass is rendered once per splat for the whole
-    // batch, which keeps sampled brush strokes practical. The whole batch runs
-    // under one camera frame: the caller's gesture-time pose if provided (the
-    // call may run from the command queue well after the gesture), the live
-    // camera otherwise.
-    async intersectMany(
-        points: { x: number, y: number }[],
-        splats = this.scene.getElementsByType(ElementType.splat) as Splat[],
-        pose?: { position: Vec3, rotation: Quat, orthoHeight: number, near: number, far: number }
+    // the picker renders into this camera's colour and work buffers, so no
+    // frame may render between a pick pass and its readbacks (see
+    // Scene.renderHold). Frames dropped during the hold are owed one.
+    private async holdFrames<T>(fn: () => Promise<T>): Promise<T> {
+        const { scene } = this;
+        scene.renderHold++;
+        try {
+            return await fn();
+        } finally {
+            if (--scene.renderHold === 0) {
+                scene.forceRender = true;
+            }
+        }
+    }
+
+    // Pixel-space ray for mesh editing. Picking uses frameRay under a captured
+    // frame; this keeps direct mesh drags on the same unprojection.
+    getRay(screenX: number, screenY: number, ray: Ray) {
+        const { canvas } = this.scene;
+        const frame = this.captureFrame();
+        this.frameRay(
+            frame,
+            screenX / Math.max(1, canvas.clientWidth),
+            screenY / Math.max(1, canvas.clientHeight),
+            ray
+        );
+    }
+
+    // pick ray at normalized screen coordinates (0-1) under the frame. The
+    // origin is the camera in perspective and a point on the near plane in
+    // ortho, so callers measure each origin's own view depth rather than
+    // assuming near.
+    private frameRay(frame: CameraFrame, x: number, y: number, ray: Ray) {
+        invViewProj.mul2(frame.projection, frame.view).invert();
+        const unproject = (z: number, out: Vec3) => {
+            vec4.set(x * 2 - 1, 1 - y * 2, z, 1);
+            invViewProj.transformVec4(vec4, vec4);
+            return out.set(vec4.x / vec4.w, vec4.y / vec4.w, vec4.z / vec4.w);
+        };
+        unproject(1, vec);
+        if (frame.ortho) {
+            unproject(-1, vecb);
+            ray.set(vecb, vec.sub(vecb).normalize());
+        } else {
+            ray.set(frame.position, vec.sub(frame.position).normalize());
+        }
+    }
+
+    // depth-pick normalized screen points against the splats under the frame:
+    // the closest surface at each point as world position, along-view distance
+    // and linear depth, or null where nothing is hit. The depth pass is
+    // rendered once per splat for the whole batch, which keeps sampled brush
+    // strokes practical. Runs in the caller's command slot; intersectMany is
+    // the queue entry for callers that don't own one.
+    async pickDepths(
+        ctx: CommandContext,
+        frame: CameraFrame,
+        points: { x: number; y: number }[],
+        splats = this.scene.getElementsByType(ElementType.splat) as Splat[]
     ) {
         const { scene } = this;
+        const forward = frame.rotation.transformVector(Vec3.FORWARD, new Vec3());
+
+        const rays = points.map(({ x, y }) => {
+            this.frameRay(frame, x, y, ray);
+            return {
+                origin: ray.origin.clone(),
+                direction: ray.direction.clone(),
+                cosAngle: ray.direction.dot(forward),
+                originDepth: vecb.sub2(ray.origin, frame.position).dot(forward)
+            };
+        });
+
         const closestDepths = points.map(() => Infinity);
         const closestSplats: (Splat | null)[] = new Array(points.length).fill(null);
 
-        const cameraPos = pose?.position ?? this.mainCamera.getPosition().clone();
-        const cameraRot = pose?.rotation ?? this.mainCamera.getRotation().clone();
-        const orthoHeight = pose?.orthoHeight ?? this.camera.orthoHeight;
-        const near = pose?.near ?? this.near;
-        const far = pose?.far ?? this.far;
-        const forward = cameraRot.transformVector(Vec3.FORWARD, new Vec3());
+        await this.holdFrames(() =>
+            this.picker.withTargetSize('depth', frame.target, async () => {
+                // Find the splat with the smallest depth at each screen position.
+                // Each depth pass composites through the projected cache front to
+                // back, so it needs a sorted order under it, projected under the
+                // same frame
+                for (const splat of splats) {
+                    // removed while the batch was queued
+                    if (!splat.scene) continue;
 
-        // run fn with the camera swapped to the snapshot frame and restored
-        // before returning. The camera can move between the awaits below
-        // (wheel, right-drag, fly keys, or the command queue delaying the
-        // call), and the rays, every depth pass, and the near/far encoding
-        // the depths are decoded with must all share one frame.
-        const withSnapshotCamera = (fn: () => void) => {
-            const livePos = this.mainCamera.getPosition().clone();
-            const liveRot = this.mainCamera.getRotation().clone();
-            const liveOrthoHeight = this.camera.orthoHeight;
-            const liveNear = this.camera.nearClip;
-            const liveFar = this.camera.farClip;
-            this.mainCamera.setPosition(cameraPos);
-            this.mainCamera.setRotation(cameraRot);
-            this.camera.orthoHeight = orthoHeight;
-            this.camera.nearClip = near;
-            this.camera.farClip = far;
-            fn();
-            this.mainCamera.setPosition(livePos);
-            this.mainCamera.setRotation(liveRot);
-            this.camera.orthoHeight = liveOrthoHeight;
-            this.camera.nearClip = liveNear;
-            this.camera.farClip = liveFar;
-        };
-
-        // build the pick rays under the snapshot frame. getRay seeds the ray
-        // origin differently per projection - at the camera for perspective, on
-        // (just behind) the near plane for ortho - so each origin's own view
-        // depth is measured here rather than assuming near.
-        const rays: { origin: Vec3, direction: Vec3, cosAngle: number, originDepth: number }[] = [];
-        withSnapshotCamera(() => {
-            for (const { x, y } of points) {
-                this.getRay(x * scene.canvas.clientWidth, y * scene.canvas.clientHeight, ray);
-                rays.push({
-                    origin: ray.origin.clone(),
-                    direction: ray.direction.clone(),
-                    cosAngle: ray.direction.dot(forward),
-                    originDepth: vecb.sub2(ray.origin, cameraPos).dot(forward)
-                });
-            }
-        });
-
-        // Find the splat with the smallest depth at each screen position. Each
-        // depth pass composites through the projected cache front to back, so
-        // it needs a sorted order under it, rendered under the same frame
-        for (let i = 0; i < splats.length; ++i) {
-            const splat = splats[i];
-
-            withSnapshotCamera(() => {
-                scene.projectedSplatRenderer.renderSortedForPick();
-                this.picker.prepareDepth(splat);
-            });
-            const depths = await this.picker.readDepths(points);
-            for (let j = 0; j < depths.length; ++j) {
-                const depth = depths[j];
-                if (depth !== null && depth < closestDepths[j]) {
-                    closestDepths[j] = depth;
-                    closestSplats[j] = splat;
+                    this.withFrame(frame, () => {
+                        scene.projectedSplatRenderer.renderSortedForPick(frame.target);
+                        this.picker.prepareDepth(splat);
+                    });
+                    const depths = await this.picker.readDepths(points);
+                    for (let j = 0; j < depths.length; ++j) {
+                        const depth = depths[j];
+                        if (depth !== null && depth < closestDepths[j]) {
+                            closestDepths[j] = depth;
+                            closestSplats[j] = splat;
+                        }
+                    }
                 }
-            }
-        }
+            })
+        );
 
+        const { near, far } = frame;
         return points.map((point, index) => {
             const splat = closestSplats[index];
             if (!splat) {
@@ -935,6 +1061,39 @@ class Camera extends Element {
         });
     }
 
+    // id-pick a normalized screen rectangle against one splat under the frame:
+    // the frontmost instance index per render-target pixel (0xffffffff where
+    // none), filtered by the selection op as the pick shader does. Runs in the
+    // caller's command slot.
+    pickIds(
+        ctx: CommandContext,
+        frame: CameraFrame,
+        splat: Splat,
+        mode: 'add' | 'remove' | 'set' | 'intersect',
+        footprint: number,
+        x: number,
+        y: number,
+        width: number,
+        height: number
+    ) {
+        return this.holdFrames(() =>
+            this.picker.withTargetSize('id', frame.target, () => {
+                this.withFrame(frame, () => this.picker.prepareId(splat, mode, footprint));
+                return this.picker.readIds(x, y, width, height);
+            })
+        );
+    }
+
+    // depth-pick from outside the command queue: captures the live frame now
+    // and takes a slot, so the pick is ordered with every other command and
+    // runs under the camera the caller saw, however long the queue delays it
+    intersectMany(points: { x: number; y: number }[], splats?: Splat[]) {
+        const frame = this.captureFrame();
+        const pickPoints = points.map(({ x, y }) => ({ x, y }));
+        const pickSplats = splats?.slice();
+        return this.scene.commandQueue.enqueue((ctx) => this.pickDepths(ctx, frame, pickPoints, pickSplats));
+    }
+
     // intersect the scene at the given normalized screen coordinate (0-1 range) using depth picking
     async intersect(x: number, y: number) {
         return (await this.intersectMany([{ x, y }]))[0];
@@ -947,7 +1106,7 @@ class Camera extends Element {
             const { scene } = this;
 
             this.setFocalPoint(result.position);
-            this.setDistance(result.distance / this.sceneRadius * this.fovFactor);
+            this.setDistance((result.distance / this.sceneRadius) * this.fovFactor);
             scene.events.fire('camera.focalPointPicked', {
                 camera: this,
                 splat: result.splat,
@@ -956,23 +1115,8 @@ class Camera extends Element {
         }
     }
 
-    // pick mode
-
-    // render picker contents
-    pickPrep(splat: Splat, mode: 'add' | 'remove' | 'set' | 'intersect') {
-        this.picker.prepareId(splat, mode);
-    }
-
-    pick(x: number, y: number) {
-        return this.picker.readId(x, y);
-    }
-
-    pickRect(x: number, y: number, width: number, height: number) {
-        return this.picker.readIds(x, y, width, height);
-    }
-
     docSerialize() {
-        const pack3 = (v: Vec3) => [v.x, v.y, v.z];
+        const pack3 = (v: { x: number; y: number; z: number }) => [v.x, v.y, v.z];
 
         return {
             focalPoint: pack3(this.focalPointTween.target),
@@ -984,7 +1128,7 @@ class Camera extends Element {
         };
     }
 
-    docDeserialize(settings: any) {
+    docDeserialize(settings: ReturnType<Camera['docSerialize']>) {
         this.setFocalPoint(new Vec3(settings.focalPoint), 0);
         this.setAzimElev(settings.azim, settings.elev, 0);
         this.setDistance(settings.distance, 0);
@@ -1029,4 +1173,4 @@ class Camera extends Element {
     }
 }
 
-export { Camera };
+export { Camera, CameraFrame };

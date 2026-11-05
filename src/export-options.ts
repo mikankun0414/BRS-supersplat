@@ -1,7 +1,8 @@
 import type { Pose } from './camera-poses';
-import { Events } from './events';
+import type { Events } from './events';
 import type { WriteTarget } from './io';
-import { AnimTrack, defaultPostEffectSettings, ExperienceSettings, SerializeSettings, ViewerExportSettings } from './splat-serialize';
+import type { AnimTrack, ExperienceSettings, SerializeSettings, ViewerExportSettings } from './splat-serialize';
+import { defaultPostEffectSettings } from './splat-serialize';
 
 type ExportType = 'ply' | 'splat' | 'sog' | 'spz' | 'viewer';
 
@@ -10,7 +11,7 @@ type ExportType = 'ply' | 'splat' | 'sog' | 'spz' | 'viewer';
 // choices picks up the current camera pose and animation.
 interface ExportChoices {
     filename: string;
-    maxSHBands?: number;
+    shBands?: number;
 
     // ply
     compressedPly?: boolean;
@@ -61,13 +62,18 @@ const buildViewerSettings = (events: Events, choices: ExportChoices): ViewerExpo
     const pose = events.invoke('camera.getPose');
     const p = pose?.position;
     const t = pose?.target;
-    const cameras = (p && t) ? [{
-        initial: {
-            position: [p.x, p.y, p.z] as [number, number, number],
-            target: [t.x, t.y, t.z] as [number, number, number],
-            fov
-        }
-    }] : [];
+    const cameras =
+        p && t
+            ? [
+                  {
+                      initial: {
+                          position: [p.x, p.y, p.z] as [number, number, number],
+                          target: [t.x, t.y, t.z] as [number, number, number],
+                          fov
+                      }
+                  }
+              ]
+            : [];
 
     const animTracks: AnimTrack[] = [];
 
@@ -76,8 +82,8 @@ const buildViewerSettings = (events: Events, choices: ExportChoices): ViewerExpo
         const frameRate = events.invoke('timeline.frameRate');
         const smoothness = events.invoke('timeline.smoothness');
         const orderedPoses = (events.invoke('camera.poses') as Pose[])
-        .filter(entry => entry.frame >= 0 && entry.frame < frames)
-        .sort((a, b) => a.frame - b.frame);
+            .filter((entry) => entry.frame >= 0 && entry.frame < frames)
+            .sort((a, b) => a.frame - b.frame);
 
         if (orderedPoses.length > 0) {
             const times: number[] = [];
@@ -127,7 +133,7 @@ const buildExportOptions = (events: Events, exportType: ExportType, choices: Exp
     const options: SceneExportOptions = {
         filename: choices.filename,
         splatIdx: 'all',
-        serializeSettings: { maxSHBands: choices.maxSHBands }
+        serializeSettings: { shBands: choices.shBands }
     };
 
     switch (exportType) {

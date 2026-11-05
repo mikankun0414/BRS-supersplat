@@ -6,6 +6,7 @@
 @use 'menu.scss';
 @use 'scene-panel.scss';
 @use 'settings-panel.scss';
+@use 'panel-section.scss';
 @use 'color-panel.scss';
 @use 'splat-list.scss';
 @use 'transform.scss';
@@ -105,6 +106,11 @@ body {
     bottom: 20px;
     color: $text-primary;
     text-shadow: 1px 1px 4px black;
+    cursor: pointer;
+
+    &:hover {
+        text-decoration: underline;
+    }
 
     span {
         color: $clr-hilight;

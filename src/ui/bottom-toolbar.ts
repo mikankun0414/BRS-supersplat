@@ -1,7 +1,8 @@
 import { Button, Element, Container } from '@playcanvas/pcui';
 
-import { Events } from '../events';
-import { ShortcutManager } from '../shortcut-manager';
+import type { Events } from '../events';
+import type { ShortcutManager } from '../shortcut-manager';
+
 import { i18n } from './localization';
 import { MenuPanel } from './menu-panel';
 import cloneStampSvg from './svg/clone-stamp.svg';
@@ -24,7 +25,7 @@ import depthOnSvg from './svg/selection-depth-on.svg';
 import footprintCentersSvg from './svg/selection-footprint-centers.svg';
 import footprintRingsSvg from './svg/selection-footprint-rings.svg';
 import undoSvg from './svg/undo.svg';
-import { Tooltips } from './tooltips';
+import type { Tooltips } from './tooltips';
 // import cropSvg from './svg/crop.svg';
 
 const createSvg = (svgString: string) => {
@@ -36,9 +37,9 @@ const createSvg = (svgString: string) => {
 const HOLD_MS = 400;
 
 type ToolGroupItem = {
-    tool: string;       // tool manager name
-    svg: string;        // toolbar icon
-    localeKey: string;  // tooltip / popup row text
+    tool: string; // tool manager name
+    svg: string; // toolbar icon
+    localeKey: string; // tooltip / popup row text
 };
 
 class BottomToolbar extends Container {
@@ -73,7 +74,7 @@ class BottomToolbar extends Container {
         // releases and then clicks one.
         const toolGroup = (id: string, items: ToolGroupItem[]) => {
             const button = new Button({ id, class: ['bottom-toolbar-tool', 'bottom-toolbar-group'] });
-            const icons = items.map(item => button.dom.appendChild(createSvg(item.svg)));
+            const icons = items.map((item) => button.dom.appendChild(createSvg(item.svg)));
 
             let current = items[0];
 
@@ -85,26 +86,28 @@ class BottomToolbar extends Container {
             };
             setCurrent(current);
 
-            const popup = new MenuPanel(items.map((item) => {
-                // toolbar icons draw in the middle of a 38px canvas; crop them
-                // down to the 16px menu icon size
-                const icon = createSvg(item.svg);
-                icon.setAttribute('viewBox', '6 6 26 26');
-                icon.setAttribute('width', '16');
-                icon.setAttribute('height', '16');
+            const popup = new MenuPanel(
+                items.map((item) => {
+                    // toolbar icons draw in the middle of a 38px canvas; crop them
+                    // down to the 16px menu icon size
+                    const icon = createSvg(item.svg);
+                    icon.setAttribute('viewBox', '6 6 26 26');
+                    icon.setAttribute('width', '16');
+                    icon.setAttribute('height', '16');
 
-                return {
-                    text: () => i18n.t(item.localeKey),
-                    icon: new Element({ dom: icon }),
-                    extra: shortcutManager.formatShortcut(`tool.${item.tool}`),
-                    onSelect: () => {
-                        // picking the already active tool keeps it active
-                        if (events.invoke('tool.active') !== item.tool) {
-                            events.fire(`tool.${item.tool}`);
+                    return {
+                        text: () => i18n.t(item.localeKey),
+                        icon: new Element({ dom: icon }),
+                        extra: shortcutManager.formatShortcut(`tool.${item.tool}`),
+                        onSelect: () => {
+                            // picking the already active tool keeps it active
+                            if (events.invoke('tool.active') !== item.tool) {
+                                events.fire(`tool.${item.tool}`);
+                            }
                         }
-                    }
-                };
-            }));
+                    };
+                })
+            );
             this.append(popup);
 
             // above the button, clearing the active tool's own toolbar (a
@@ -178,17 +181,21 @@ class BottomToolbar extends Container {
             button.dom.addEventListener('pointercancel', cancelHold);
 
             // close on a press anywhere outside the popup and its button
-            window.addEventListener('pointerdown', (event: PointerEvent) => {
-                const target = event.target as Node;
-                if (!popup.hidden && !popup.dom.contains(target) && !button.dom.contains(target)) {
-                    popup.hidden = true;
-                }
-            }, true);
+            window.addEventListener(
+                'pointerdown',
+                (event: PointerEvent) => {
+                    const target = event.target as Node;
+                    if (!popup.hidden && !popup.dom.contains(target) && !button.dom.contains(target)) {
+                        popup.hidden = true;
+                    }
+                },
+                true
+            );
 
             // track activation from any source (popup, shortcut) so the button
             // always shows the tool that would be toggled next
             events.on('tool.activated', (toolName: string) => {
-                const item = items.find(item => item.tool === toolName);
+                const item = items.find((item) => item.tool === toolName);
                 if (item) {
                     setCurrent(item);
                 }
@@ -254,7 +261,11 @@ class BottomToolbar extends Container {
         ]);
 
         const eyedropper = toolGroup('bottom-toolbar-eyedropper', [
-            { tool: 'eyedropperSelection', svg: eyedropperSvg, localeKey: 'tooltip.bottom-toolbar.eyedropper-selection' },
+            {
+                tool: 'eyedropperSelection',
+                svg: eyedropperSvg,
+                localeKey: 'tooltip.bottom-toolbar.eyedropper-selection'
+            },
             { tool: 'floodSelection', svg: floodSvg, localeKey: 'tooltip.bottom-toolbar.flood-selection' }
         ]);
 
@@ -480,7 +491,10 @@ class BottomToolbar extends Container {
         tooltips.register(footprintMode, tooltip('tooltip.bottom-toolbar.footprint', 'selection.toggleFootprint'));
         tooltips.register(picker, tooltip('tooltip.bottom-toolbar.rectangle-selection', 'tool.rectSelection'));
         tooltips.register(brush, tooltip('tooltip.bottom-toolbar.brush-selection', 'tool.brushSelection'));
-        tooltips.register(sphereBrush, tooltip('tooltip.bottom-toolbar.sphere-brush-selection', 'tool.sphereBrushSelection'));
+        tooltips.register(
+            sphereBrush,
+            tooltip('tooltip.bottom-toolbar.sphere-brush-selection', 'tool.sphereBrushSelection')
+        );
         tooltips.register(sphere, tooltip('tooltip.bottom-toolbar.sphere-selection'));
         tooltips.register(box, tooltip('tooltip.bottom-toolbar.box-selection'));
         tooltips.register(move, tooltip('tooltip.bottom-toolbar.move', 'tool.moveShortcut'));
@@ -492,9 +506,11 @@ class BottomToolbar extends Container {
         tooltips.register(orient, tooltip('tooltip.bottom-toolbar.orient'));
         tooltips.register(layerAlign, tooltip('tooltip.bottom-toolbar.layer-align'));
         tooltips.register(coordSpace, tooltip('tooltip.bottom-toolbar.local-space', 'tool.toggleCoordSpace'));
-        tooltips.register(origin, () => i18n.t(
-            events.invoke('tool.active') === 'orient' ? 'orient.set-pivot' : 'tooltip.bottom-toolbar.reset-pivot'
-        ));
+        tooltips.register(origin, () =>
+            i18n.t(
+                events.invoke('tool.active') === 'orient' ? 'orient.set-pivot' : 'tooltip.bottom-toolbar.reset-pivot'
+            )
+        );
     }
 }
 

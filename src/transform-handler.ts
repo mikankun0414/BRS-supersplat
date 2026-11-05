@@ -1,9 +1,9 @@
 import { ElementType } from './element';
 import { EntityTransformHandler } from './entity-transform-handler';
-import { Events } from './events';
+import type { Events } from './events';
 import type { GltfModel } from './model';
 import { registerPivotEvents } from './pivot';
-import { Splat } from './splat';
+import type { Splat } from './splat';
 import { SplatsTransformHandler } from './splats-transform-handler';
 
 interface TransformHandler {
@@ -15,6 +15,9 @@ const registerTransformHandlerEvents = (events: Events) => {
     const transformHandlers: TransformHandler[] = [];
 
     const push = (handler: TransformHandler) => {
+        if (transformHandlers.length > 0 && transformHandlers[transformHandlers.length - 1] === handler) {
+            return;
+        }
         if (transformHandlers.length > 0) {
             const transformHandler = transformHandlers[transformHandlers.length - 1];
             transformHandler.deactivate();
@@ -23,14 +26,25 @@ const registerTransformHandlerEvents = (events: Events) => {
         handler.activate();
     };
 
-    const pop = () => {
-        if (transformHandlers.length > 0) {
-            const transformHandler = transformHandlers.pop();
-            transformHandler.deactivate();
+    const pop = (targetHandler?: TransformHandler) => {
+        if (transformHandlers.length === 0) {
+            return;
         }
+        if (targetHandler && transformHandlers[transformHandlers.length - 1] !== targetHandler) {
+            const idx = transformHandlers.lastIndexOf(targetHandler);
+            if (idx >= 0) {
+                transformHandlers.splice(idx, 1);
+                targetHandler.deactivate();
+            }
+            return;
+        }
+
+        const transformHandler = transformHandlers.pop();
+        transformHandler.deactivate();
+
         if (transformHandlers.length > 0) {
-            const transformHandler = transformHandlers[transformHandlers.length - 1];
-            transformHandler.activate();
+            const nextHandler = transformHandlers[transformHandlers.length - 1];
+            nextHandler.activate();
         }
     };
 
@@ -38,13 +52,40 @@ const registerTransformHandlerEvents = (events: Events) => {
     const entityTransformHandler = new EntityTransformHandler(events);
     const splatsTransformHandler = new SplatsTransformHandler(events);
 
+    const isBaseHandler = (handler: TransformHandler) => {
+        return handler === entityTransformHandler || handler === splatsTransformHandler;
+    };
+
     const update = (splat: Splat | GltfModel) => {
-        pop();
-        if (splat) {
-            if (splat.type === ElementType.splat && (splat as Splat).numSelected > 0) {
-                push(splatsTransformHandler);
-            } else {
-                push(entityTransformHandler);
+        const nextBaseHandler = splat
+            ? splat.type === ElementType.splat && (splat as Splat).numSelected > 0
+                ? splatsTransformHandler
+                : entityTransformHandler
+            : null;
+
+        const hasOverlayTool =
+            transformHandlers.length > 0 && !isBaseHandler(transformHandlers[transformHandlers.length - 1]);
+
+        if (hasOverlayTool) {
+            const currentBase =
+                transformHandlers.length > 0 && isBaseHandler(transformHandlers[0]) ? transformHandlers[0] : null;
+
+            if (currentBase !== nextBaseHandler) {
+                if (currentBase) {
+                    currentBase.deactivate();
+                    transformHandlers.shift();
+                }
+                if (nextBaseHandler) {
+                    transformHandlers.unshift(nextBaseHandler);
+                }
+            }
+        } else {
+            while (transformHandlers.length > 0) {
+                const handler = transformHandlers.pop();
+                handler.deactivate();
+            }
+            if (nextBaseHandler) {
+                push(nextBaseHandler);
             }
         }
     };
@@ -56,8 +97,8 @@ const registerTransformHandlerEvents = (events: Events) => {
         push(handler);
     });
 
-    events.on('transformHandler.pop', () => {
-        pop();
+    events.on('transformHandler.pop', (handler?: TransformHandler) => {
+        pop(handler);
     });
 
     registerPivotEvents(events);

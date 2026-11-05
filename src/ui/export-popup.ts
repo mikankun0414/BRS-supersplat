@@ -1,11 +1,23 @@
-import { BooleanInput, Button, ColorPicker, Container, Element, Label, SelectInput, SliderInput, TextInput } from '@playcanvas/pcui';
+import {
+    BooleanInput,
+    Button,
+    ColorPicker,
+    Container,
+    Element,
+    Label,
+    SelectInput,
+    SliderInput,
+    TextInput
+} from '@playcanvas/pcui';
 
-import { Pose } from '../camera-poses';
-import { i18n } from './localization';
-import { Events } from '../events';
-import { ExportChoices, ExportDialogResult, ExportType } from '../export-options';
-import { ExportSettings } from '../export-settings';
+import type { Pose } from '../camera-poses';
+import type { Events } from '../events';
+import type { ExportChoices, ExportDialogResult, ExportType } from '../export-options';
+import type { ExportSettings } from '../export-settings';
 import type { BlobReadSource, WriteTarget } from '../io';
+import type { Splat } from '../splat';
+
+import { i18n } from './localization';
 import sceneExport from './svg/export.svg';
 import projectSave from './svg/save.svg';
 
@@ -46,13 +58,21 @@ const removeKnownExtension = (filename: string) => {
 };
 
 const isValidFilename = (filename: string) => {
-    return !!filename.trim() && !/[<>:"/\\|?*]|[. ]$/.test(filename) &&
-        !Array.from(filename).some(char => char.charCodeAt(0) < 32) &&
-        !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(filename);
+    return (
+        !!filename.trim() &&
+        !/[<>:"/\\|?*]|[. ]$/.test(filename) &&
+        !Array.from(filename).some((char) => char.charCodeAt(0) < 32) &&
+        !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(filename)
+    );
 };
 
 class ExportPopup extends Container {
-    show: (exportType: FileDialogType, splatNames: string[], settings?: ExportSettings, exclude?: BlobReadSource) => Promise<null | ExportDialogResult>;
+    show: (
+        exportType: FileDialogType,
+        splatNames: string[],
+        settings?: ExportSettings,
+        exclude?: BlobReadSource
+    ) => Promise<null | ExportDialogResult>;
     hide: () => void;
     destroy: () => void;
 
@@ -361,7 +381,9 @@ class ExportPopup extends Container {
 
         const getFilename = () => {
             const filename = filenameEntry.value;
-            return filename && !filename.toLowerCase().endsWith(filenameExtension) ? `${filename}${filenameExtension}` : filename;
+            return filename && !filename.toLowerCase().endsWith(filenameExtension)
+                ? `${filename}${filenameExtension}`
+                : filename;
         };
 
         const validateFilename = async (suggest = false): Promise<void> => {
@@ -373,7 +395,9 @@ class ExportPopup extends Container {
             locationName.hidden = !directory;
             locationName.text = directory ? `…/${directory.name}` : '';
             locationName.dom.title = locationName.text;
-            changeLocationButton.text = i18n.t(directory ? 'popup.export.change-location' : 'popup.export.choose-location');
+            changeLocationButton.text = i18n.t(
+                directory ? 'popup.export.change-location' : 'popup.export.choose-location'
+            );
             exportButton.enabled = false;
             exportButton.text = i18n.t(actionKey);
 
@@ -386,8 +410,8 @@ class ExportPopup extends Container {
             } else if (directory) {
                 try {
                     handle = await directory.getFileHandle(filename);
-                    const sources = await events.invoke('scene.sourcesOf', handle) as BlobReadSource[];
-                    if (sources.some(source => source !== excludedSource)) {
+                    const sources = (await events.invoke('scene.sourcesOf', handle)) as BlobReadSource[];
+                    if (sources.some((source) => source !== excludedSource)) {
                         message = i18n.t('popup.overwrite-source');
                         needsSuggestion = true;
                     }
@@ -407,8 +431,12 @@ class ExportPopup extends Container {
                     stem = filename.slice(0, filename.lastIndexOf('.'));
                 }
                 const extension = filename.slice(stem.length);
-                let base = Array.from(stem).map(char => (char.charCodeAt(0) < 32 || /[<>:"/\\|?*]/.test(char) ? '_' : char))
-                .join('').trim().replace(/[. ]+$/, '') || 'scene';
+                let base =
+                    Array.from(stem)
+                        .map((char) => (char.charCodeAt(0) < 32 || /[<>:"/\\|?*]/.test(char) ? '_' : char))
+                        .join('')
+                        .trim()
+                        .replace(/[. ]+$/, '') || 'scene';
                 if (!isValidFilename(`${base}_cleaned${extension}`)) base = 'scene';
 
                 let index = 1;
@@ -451,7 +479,8 @@ class ExportPopup extends Container {
             filenameMessage.dom.classList.toggle('error', !!message);
             filenameEntry.input.setAttribute('aria-invalid', String(!!message));
             exportButton.text = i18n.t(handle && !message ? 'popup.export.overwrite' : actionKey);
-            exportButton.enabled = !message && (!hasFilePicker || !!directory) && changeLocationButton.enabled && !submitting;
+            exportButton.enabled =
+                !message && (!hasFilePicker || !!directory) && changeLocationButton.enabled && !submitting;
         };
 
         i18n.onChange(validateFilename, this);
@@ -510,7 +539,15 @@ class ExportPopup extends Container {
 
         const reset = (exportType: FileDialogType, splatNames: string[], hasPoses: boolean) => {
             const allRows = [
-                viewerTypeRow, animationRow, loopRow, colorRow, fovRow, compressRow, bandsRow, iterationsRow, spzVersionRow
+                viewerTypeRow,
+                animationRow,
+                loopRow,
+                colorRow,
+                fovRow,
+                compressRow,
+                bandsRow,
+                iterationsRow,
+                spzVersionRow
             ];
 
             const activeRows: Container[] = {
@@ -526,7 +563,13 @@ class ExportPopup extends Container {
                 r.hidden = activeRows.indexOf(r) === -1;
             });
 
-            bandsSlider.value = events.invoke('view.bands');
+            // default to the scene's band count, capped by the viewport setting.
+            // higher values pad the missing coefficients with zeros
+            const sceneBands = Math.max(
+                0,
+                ...(events.invoke('scene.splats') as Splat[]).map((s) => s.resource.shBands)
+            );
+            bandsSlider.value = Math.min(events.invoke('view.bands'), sceneBands);
 
             // ply
             compressBoolean.value = false;
@@ -573,14 +616,19 @@ class ExportPopup extends Container {
             fovSlider.value = events.invoke('camera.fov');
         };
 
-        this.show = (exportType: FileDialogType, splatNames: string[], settings: ExportSettings = {}, exclude?: BlobReadSource) => {
+        this.show = (
+            exportType: FileDialogType,
+            splatNames: string[],
+            settings: ExportSettings = {},
+            exclude?: BlobReadSource
+        ) => {
             saveProject = exportType === 'ssproj';
             excludedSource = exclude;
             exportIcon.hidden = saveProject;
             saveIcon.hidden = !saveProject;
 
             const frames = events.invoke('timeline.frames');
-            const hasPoses = (events.invoke('camera.poses') as Pose[]).some(p => p.frame >= 0 && p.frame < frames);
+            const hasPoses = (events.invoke('camera.poses') as Pose[]).some((p) => p.frame >= 0 && p.frame < frames);
 
             reset(exportType, splatNames, hasPoses);
 
@@ -598,15 +646,19 @@ class ExportPopup extends Container {
                 const filename = getFilename();
                 switch (exportType) {
                     case 'ply':
-                        return { filename, maxSHBands: bandsSlider.value, compressedPly: compressBoolean.value };
+                        return { filename, shBands: bandsSlider.value, compressedPly: compressBoolean.value };
                     case 'sog':
-                        return { filename, maxSHBands: bandsSlider.value, sogIterations: iterationsSlider.value };
+                        return { filename, shBands: bandsSlider.value, sogIterations: iterationsSlider.value };
                     case 'spz':
-                        return { filename, maxSHBands: bandsSlider.value, spzVersion: spzVersionSelect.value === '3' ? 3 : 4 };
+                        return {
+                            filename,
+                            shBands: bandsSlider.value,
+                            spzVersion: spzVersionSelect.value === '3' ? 3 : 4
+                        };
                     case 'viewer':
                         return {
                             filename,
-                            maxSHBands: bandsSlider.value,
+                            shBands: bandsSlider.value,
                             viewerType: viewerTypeSelect.value === 'zip' ? 'zip' : 'html',
                             includeAnimation: animationToggle.value,
                             loopMode: loopSelect.value as ExportChoices['loopMode'],
@@ -634,8 +686,14 @@ class ExportPopup extends Container {
                         const choices = getChoices();
                         let fileTarget: WriteTarget;
                         if (directory) {
-                            const target = await events.invoke('scene.pickWriteTarget', directory, getFilename(),
-                                async (handle: FileSystemFileHandle) => !!overwriteHandle && await handle.isSameEntry(overwriteHandle), excludedSource);
+                            const target = await events.invoke(
+                                'scene.pickWriteTarget',
+                                directory,
+                                getFilename(),
+                                async (handle: FileSystemFileHandle) =>
+                                    !!overwriteHandle && (await handle.isSameEntry(overwriteHandle)),
+                                excludedSource
+                            );
 
                             // A newly detected file needs an explicit Overwrite click.
                             // Keep the dialog open if its filename or folder changed while checking.

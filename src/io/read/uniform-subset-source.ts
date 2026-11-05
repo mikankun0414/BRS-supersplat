@@ -1,4 +1,4 @@
-import { type ChunkData, type ChunkDataPool, type ChunkLayer, type ChunkSource } from '@playcanvas/splat-transform';
+import type { ChunkData, ChunkDataPool, ChunkLayer, ChunkSource } from '@playcanvas/splat-transform';
 
 /**
  * Create a lazy source that keeps a uniformly distributed subset of a source.

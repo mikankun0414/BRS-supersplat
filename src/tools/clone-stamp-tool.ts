@@ -3,11 +3,12 @@ import { BoundingBox, Mat4, Vec3 } from 'playcanvas';
 
 import { AddSplatOp, selectedRanges } from '../edit-ops';
 import { ElementType } from '../element';
-import { Events } from '../events';
+import type { Events } from '../events';
 import { IndexRanges } from '../index-ranges';
-import { Scene } from '../scene';
-import { Splat } from '../splat';
-import { ToolOverlay, OverlayWriter } from '../tool-overlay';
+import type { Scene } from '../scene';
+import type { Splat } from '../splat';
+import type { OverlayWriter } from '../tool-overlay';
+import { ToolOverlay } from '../tool-overlay';
 import { i18n } from '../ui/localization';
 
 // pointer movement below this many pixels still counts as a click
@@ -29,8 +30,13 @@ const stampPosition = (localPosition: Vec3, anchor: Vec3, target: Vec3, parentWo
 };
 
 class CloneStampTransformHandler {
-    activate() {}
-    deactivate() {}
+    activate() {
+        // Pivot binding stays on the active splat handler.
+    }
+
+    deactivate() {
+        // The tool pops this handler itself.
+    }
 }
 
 // Capture the selected gaussians as an immutable template. Each click places
@@ -127,27 +133,30 @@ class CloneStampTool {
             const selectionBound = new BoundingBox();
             const localBound = new BoundingBox();
             let accepted = false;
-            const capture = scene.commandQueue.enqueue(async () => {
-                if (gen !== generation) return false;
-                // Subset creation and palette remapping leave dirty GPU buffers.
-                captured.instances.flush();
-                await scene.dataProcessor.calcBound(captured, selectionBound, localBound);
-                if (gen !== generation) return false;
-                center.copy(localBound.center);
-                template = captured;
-                accepted = true;
-                setHint('clone-stamp.hint-stamp');
-                scene.forceRender = true;
-                return true;
-            }).catch((error) => {
-                console.error('Clone stamp source capture failed', error);
-                if (gen === generation) setHint('clone-stamp.hint-source');
-                return false;
-            }).finally(() => {
-                // Never destroy buffers while a queued GPU readback uses them.
-                if (!accepted) captured.destroy();
-                if (pendingCapture === capture) pendingCapture = null;
-            });
+            const capture = scene.commandQueue
+                .enqueue(async () => {
+                    if (gen !== generation) return false;
+                    // Subset creation and palette remapping leave dirty GPU buffers.
+                    captured.instances.flush();
+                    await scene.dataProcessor.calcBound(captured, selectionBound, localBound);
+                    if (gen !== generation) return false;
+                    center.copy(localBound.center);
+                    template = captured;
+                    accepted = true;
+                    setHint('clone-stamp.hint-stamp');
+                    scene.forceRender = true;
+                    return true;
+                })
+                .catch((error) => {
+                    console.error('Clone stamp source capture failed', error);
+                    if (gen === generation) setHint('clone-stamp.hint-source');
+                    return false;
+                })
+                .finally(() => {
+                    // Never destroy buffers while a queued GPU readback uses them.
+                    if (!accepted) captured.destroy();
+                    if (pendingCapture === capture) pendingCapture = null;
+                });
             pendingCapture = capture;
             return capture;
         };
@@ -155,27 +164,26 @@ class CloneStampTool {
         const stamp = async (x: number, y: number) => {
             // Capture the gesture's camera before waiting for the source readback.
             const { camera } = scene;
-            const pose = {
-                position: camera.mainCamera.getPosition().clone(),
-                rotation: camera.mainCamera.getRotation().clone(),
-                orthoHeight: camera.camera.orthoHeight,
-                near: camera.near,
-                far: camera.far
-            };
+            const frame = camera.captureFrame();
             const capture = pendingCapture ?? (!template ? captureSelectionCenter() : null);
             const gen = generation;
-            if (capture && !await capture) return;
+            if (capture && !(await capture)) return;
             if (gen !== generation || !template) return;
 
-            const [result] = await camera.intersectMany([{ x, y }], undefined, pose);
+            const [result] = await scene.commandQueue.enqueue((ctx) => camera.pickDepths(ctx, frame, [{ x, y }]));
             if (gen !== generation || !result || !template) return;
 
-            const copy = template.createLayer(IndexRanges.fromPredicate(template.instances.count, () => true), template.name);
+            const copy = template.createLayer(
+                IndexRanges.fromPredicate(template.instances.count, () => true),
+                template.name
+            );
             // Both template and copy retain the source's local rotation / scale.
             // Recompute the world center under the destination parent, including
             // any parent movement since capture, before translating the copy.
             const position = stampPosition(
-                template.entity.getLocalPosition(), worldCenter(), result.position,
+                template.entity.getLocalPosition(),
+                worldCenter(),
+                result.position,
                 scene.contentRoot.getWorldTransform()
             );
             copy.entity.setLocalPosition(position);

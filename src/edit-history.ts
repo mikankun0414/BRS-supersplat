@@ -1,23 +1,23 @@
-import { CommandQueue } from './command-queue';
-import { EditOp, MergeSplatsOp, MultiOp } from './edit-ops';
-import { Element } from './element';
-import { Events } from './events';
-import { Splat } from './splat';
+import type { CommandQueue } from './command-queue';
+import { MergeSplatsOp, MultiOp } from './edit-ops';
+import type { EditOp } from './edit-ops';
+import { checkCancelled } from './editor-command';
+import type { CommandOptions } from './editor-command';
+import type { Element } from './element';
+import type { Events } from './events';
 
 // Check if an operation references a specific element
 const opReferencesElement = (op: EditOp, element: Element): boolean => {
     // Handle MultiOp by checking nested operations
     if (op instanceof MultiOp) {
-        return op.ops.some(nestedOp => opReferencesElement(nestedOp, element));
+        return op.ops.some((nestedOp) => opReferencesElement(nestedOp, element));
     }
     // Check for splat property on the operation
-    if ((op as any).splat === element) {
+    if ((op as EditOp & { splat?: Element }).splat === element) {
         return true;
     }
-    if (Array.isArray((op as any).sources) && (op as any).sources.includes(element)) {
-        return true;
-    }
-    return false;
+    const sources = (op as EditOp & { sources?: Element[] }).sources;
+    return Array.isArray(sources) && sources.includes(element);
 };
 
 // Free off-scene resources owned by operations that are dropped when a splat is destroyed.
@@ -45,6 +45,10 @@ class EditHistory {
         this.events = events;
         this.commandQueue = commandQueue;
 
+        // in-slot application for tasks that already own a command slot
+        // (CommandContext.apply); add() below is the queue entry for the rest
+        commandQueue.setEditApplier((editOp, suppressOp) => this._add(editOp, suppressOp));
+
         events.on('edit.undo', () => this.undo());
         events.on('edit.redo', () => this.redo());
         events.on('edit.add', (editOp: EditOp, suppressOp = false) => this.add(editOp, suppressOp));
@@ -67,19 +71,21 @@ class EditHistory {
         return this.cursor < this.history.length;
     }
 
-    undo() {
+    undo(options?: CommandOptions) {
         return this.queue(async () => {
-            if (this.canUndo()) {
-                await this._undo();
-            }
+            checkCancelled(options);
+            const changed = this.canUndo();
+            if (changed) await this._undo();
+            return { changed, canUndo: this.canUndo(), canRedo: this.canRedo() };
         });
     }
 
-    redo(suppressOp = false) {
+    redo(suppressOp = false, options?: CommandOptions) {
         return this.queue(async () => {
-            if (this.canRedo()) {
-                await this._redo(suppressOp);
-            }
+            checkCancelled(options);
+            const changed = this.canRedo();
+            if (changed) await this._redo(suppressOp);
+            return { changed, canUndo: this.canUndo(), canRedo: this.canRedo() };
         });
     }
 
@@ -142,7 +148,7 @@ class EditHistory {
 
             for (let i = 0; i < this.history.length; i++) {
                 const op = this.history[i];
-                if ((op as any).shape === shape) {
+                if ((op as EditOp & { shape?: unknown }).shape === shape) {
                     op.destroy?.();
                 } else {
                     newHistory.push(op);

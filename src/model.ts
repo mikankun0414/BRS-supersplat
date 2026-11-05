@@ -1,8 +1,18 @@
-import { Asset, BoundingBox, ContainerResource, Entity, LightComponent, MeshInstance, Quat, RenderComponent, Vec3 } from 'playcanvas';
+import type {
+    Asset,
+    ContainerResource,
+    Entity,
+    LightComponent,
+    MeshInstance,
+    Quat,
+    RenderComponent,
+    Vec3
+} from 'playcanvas';
+import { BoundingBox } from 'playcanvas';
 
 import { Element, ElementType } from './element';
-import { Serializer } from './serializer';
-import { Transform } from './transform';
+import type { Serializer } from './serializer';
+import type { Transform } from './transform';
 
 class GltfModel extends Element {
     asset: Asset;
@@ -121,11 +131,7 @@ class GltfModel extends Element {
     // Return the model entity transform in the same content-root space used by
     // the transform gizmos and the numeric transform panel.
     getPivot(result: Transform) {
-        result.set(
-            this.entity.getLocalPosition(),
-            this.entity.getLocalRotation(),
-            this.entity.getLocalScale()
-        );
+        result.set(this.entity.getLocalPosition(), this.entity.getLocalRotation(), this.entity.getLocalScale());
     }
 
     get worldBound() {
@@ -166,8 +172,9 @@ class GltfModel extends Element {
     }
 
     private getMeshInstances() {
-        return (this.entity.findComponents('render') as RenderComponent[])
-        .flatMap(render => render.meshInstances as MeshInstance[]);
+        return (this.entity.findComponents('render') as RenderComponent[]).flatMap(
+            (render) => render.meshInstances as MeshInstance[]
+        );
     }
 
     // Mesh editing and other model tools need access to the render instances,

@@ -1,11 +1,12 @@
-import {
-    type ChunkDataPool,
-    type ChunkSource,
-    type Options,
-    type ReadFileSystem,
-    createChunkDataPool,
-    getInputFormat,
-    readFile
+import { createChunkDataPool, getInputFormat, readFile } from '@playcanvas/splat-transform';
+import type {
+    ChunkData,
+    ChunkDataPool,
+    ChunkSource,
+    Options,
+    ReadFileSystem,
+    ReadRequest,
+    Transform
 } from '@playcanvas/splat-transform';
 import {
     ADDRESS_CLAMP_TO_EDGE,
@@ -17,9 +18,9 @@ import {
     PIXELFORMAT_R8,
     PIXELFORMAT_RGBA16F,
     PIXELFORMAT_RGBA32U,
-    Texture,
-    type GraphicsDevice
+    Texture
 } from 'playcanvas';
+import type { GraphicsDevice } from 'playcanvas';
 /**
  * A large PLY is kept in one GPU resource so the built-in sorter can produce
  * one globally ordered draw. All source Gaussians are uploaded; render-time
@@ -44,7 +45,7 @@ type FullResolutionPlyResource = {
     readonly sourceShBands: number;
     readonly shBands: number;
     readonly aabb: BoundingBox;
-    readonly transform: any;
+    readonly transform: Transform;
     /** Reopen the lazy PLY source for a later lossless export. */
     readonly createSource: () => Promise<ChunkSource>;
     readonly uploadState: (data: Uint8Array) => void;
@@ -180,13 +181,17 @@ class FullResolutionContainer extends GSplatResourceBase {
         declarations: string
     ) {
         const aabb = new BoundingBox();
-        super(device, {
-            numSplats: maxSplats,
-            getCenters: (): null => null,
-            calcAabb: (box: BoundingBox): void => {
-                box.copy(aabb);
-            }
-        }, { prepareCenters: false });
+        super(
+            device,
+            {
+                numSplats: maxSplats,
+                getCenters: (): null => null,
+                calcAabb: (box: BoundingBox): void => {
+                    box.copy(aabb);
+                }
+            },
+            { prepareCenters: false }
+        );
         this._format = format;
         this.streams.init(format, maxSplats);
         this.shBands = shBands;
@@ -194,7 +199,7 @@ class FullResolutionContainer extends GSplatResourceBase {
         this.maxSplats = maxSplats;
         this.groupCount = Math.ceil(Math.ceil(maxSplats / sourceChunkSize) / FULL_RESOLUTION_GROUP_CHUNKS);
         this.declarations = declarations;
-        (this.gsplatData as any).shBands = shBands;
+        (this.gsplatData as { shBands: number }).shBands = shBands;
 
         const rowsPerSourceChunk = Math.ceil(sourceChunkSize / FULL_RESOLUTION_TEXTURE_WIDTH);
         const textureFormats = [
@@ -245,15 +250,14 @@ class FullResolutionContainer extends GSplatResourceBase {
 
     createGroupData(name: string, group: number): ArrayBufferView {
         const texture = this.textureGroups.get(name)![group];
-        const ArrayType = name === 'transformA' ? Uint32Array :
-            name === 'fullResState' ? Uint8Array : Uint16Array;
+        const ArrayType = name === 'transformA' ? Uint32Array : name === 'fullResState' ? Uint8Array : Uint16Array;
         const channels = name === 'fullResState' ? 1 : 4;
         return new ArrayType(texture.width * texture.height * channels);
     }
 
     uploadGroup(name: string, group: number, data: ArrayBufferView) {
         const texture = this.textureGroups.get(name)![group];
-        const levels = (texture as any)._levels as Array<ArrayBufferView | null>;
+        const levels = (texture as unknown as { _levels: (ArrayBufferView | null)[] })._levels;
         levels[0] = data;
         texture.upload();
         // WebGL texImage2D and WebGPU writeTexture both copy the source before
@@ -263,14 +267,17 @@ class FullResolutionContainer extends GSplatResourceBase {
 
     get selectionGroups(): FullResolutionSelectionGroup[] {
         const groupSize = this.sourceChunkSize * FULL_RESOLUTION_GROUP_CHUNKS;
-        return this.textureGroups.get('transformA')!.map((transformA, group) => {
-            const start = group * groupSize;
-            return {
-                start,
-                count: Math.max(0, Math.min(this.maxSplats - start, groupSize)),
-                transformA
-            };
-        }).filter(group => group.count > 0);
+        return this.textureGroups
+            .get('transformA')!
+            .map((transformA, group) => {
+                const start = group * groupSize;
+                return {
+                    start,
+                    count: Math.max(0, Math.min(this.maxSplats - start, groupSize)),
+                    transformA
+                };
+            })
+            .filter((group) => group.count > 0);
     }
 
     uploadState(data: Uint8Array) {
@@ -286,14 +293,26 @@ class FullResolutionContainer extends GSplatResourceBase {
         });
     }
 
-    configureMaterial(material: any, workBufferModifier: any, _formatDeclarations: string) {
+    configureMaterial(
+        material: {
+            defines: Map<string, string>;
+            shaderChunks: {
+                wgsl: { set: (name: string, code: string) => void };
+                glsl: { set: (name: string, code: string) => void };
+            };
+            setParameter: (name: string, value: Texture | number) => void;
+        },
+        workBufferModifier: { code?: string } | null | undefined,
+        _formatDeclarations: string
+    ) {
         this.configureMaterialDefines(material.defines);
         const chunks = this.device.isWebGPU ? material.shaderChunks.wgsl : material.shaderChunks.glsl;
         chunks.set('gsplatDeclarationsVS', this.declarations);
         chunks.set('gsplatReadVS', this.format.getReadCode());
         chunks.set(
             'gsplatModifyVS',
-            workBufferModifier?.code ?? (this.device.isWebGPU ? fullResolutionWorkBufferModifyWGSL : fullResolutionWorkBufferModifyGLSL)
+            workBufferModifier?.code ??
+                (this.device.isWebGPU ? fullResolutionWorkBufferModifyWGSL : fullResolutionWorkBufferModifyGLSL)
         );
         for (const [name, textures] of this.textureGroups) {
             textures.forEach((texture, group) => material.setParameter(`${name}${group}`, texture));
@@ -305,7 +324,7 @@ class FullResolutionContainer extends GSplatResourceBase {
 
     _actualDestroy() {
         for (const textures of this.textureGroups.values()) {
-            textures.forEach(texture => texture.destroy());
+            textures.forEach((texture) => texture.destroy());
         }
         this.textureGroups.clear();
         super._actualDestroy();
@@ -360,23 +379,25 @@ ${stateNames.map((name, group) => `    if (group == ${group}u) { return u32(text
     return 0u;
 }`;
     const glslDeclarations = [
-        ...transformANames.map(name => `uniform highp usampler2D ${name};`),
-        ...transformBNames.map(name => `uniform highp sampler2D ${name};`),
-        ...colorNames.map(name => `uniform highp sampler2D ${name};`),
-        ...stateNames.map(name => `uniform highp sampler2D ${name};`),
+        ...transformANames.map((name) => `uniform highp usampler2D ${name};`),
+        ...transformBNames.map((name) => `uniform highp sampler2D ${name};`),
+        ...colorNames.map((name) => `uniform highp sampler2D ${name};`),
+        ...stateNames.map((name) => `uniform highp sampler2D ${name};`),
         glslUv,
         glslStateLoader
     ].join('\n');
     const wgslDeclarations = [
-        ...transformANames.map(name => `var ${name}: texture_2d<u32>;`),
-        ...transformBNames.map(name => `var ${name}: texture_2d<f32>;`),
-        ...colorNames.map(name => `var ${name}: texture_2d<f32>;`),
-        ...stateNames.map(name => `var ${name}: texture_2d<f32>;`),
+        ...transformANames.map((name) => `var ${name}: texture_2d<u32>;`),
+        ...transformBNames.map((name) => `var ${name}: texture_2d<f32>;`),
+        ...colorNames.map((name) => `var ${name}: texture_2d<f32>;`),
+        ...stateNames.map((name) => `var ${name}: texture_2d<f32>;`),
         wgslUv,
         wgslStateLoader
     ].join('\n');
-    const glslBranches = (namesForStream: string[], zero: string) => `${namesForStream.map((name, group) => `    if (group == ${group}u) return texelFetch(${name}, uv, 0);`).join('\n')}\n    return ${zero};`;
-    const wgslBranches = (namesForStream: string[], zero: string) => `${namesForStream.map((name, group) => `    if (group == ${group}u) return textureLoad(${name}, uv, 0);`).join('\n')}\n    return ${zero};`;
+    const glslBranches = (namesForStream: string[], zero: string) =>
+        `${namesForStream.map((name, group) => `    if (group == ${group}u) return texelFetch(${name}, uv, 0);`).join('\n')}\n    return ${zero};`;
+    const wgslBranches = (namesForStream: string[], zero: string) =>
+        `${namesForStream.map((name, group) => `    if (group == ${group}u) return textureLoad(${name}, uv, 0);`).join('\n')}\n    return ${zero};`;
 
     const readGLSLData = `
 uvec4 loadTransformA() {
@@ -479,25 +500,33 @@ const visitSourceChunks = async (
     sourceChunkStart: number,
     sourceChunkEnd: number,
     layers: FullResolutionLayer[],
-    callback: (buffers: Record<FullResolutionLayer, any>, count: number, destinationStart: number, sourceChunkIndex: number) => void
+    callback: (
+        buffers: Record<FullResolutionLayer, ChunkData>,
+        count: number,
+        destinationStart: number,
+        sourceChunkIndex: number
+    ) => void
 ) => {
     const sourceChunkSize = source.meta.chunkSize;
 
     for (let sourceChunkIndex = sourceChunkStart; sourceChunkIndex < sourceChunkEnd; sourceChunkIndex++) {
         const sourceStart = sourceChunkIndex * sourceChunkSize;
         const count = Math.min(sourceChunkSize, source.meta.numGaussians - sourceStart);
-        const buffers: Record<FullResolutionLayer, any> = {} as Record<FullResolutionLayer, any>;
+        const buffers = {} as Record<FullResolutionLayer, ChunkData>;
 
         for (const layer of layers) {
             buffers[layer] = pool.acquire(layer, source.meta.layouts[layer]!, count);
         }
 
+        const request: ReadRequest = {
+            chunkIndex: sourceChunkIndex,
+            lod: 0,
+            ...(buffers.position ? { position: buffers.position } : {}),
+            ...(buffers.geometric ? { geometric: buffers.geometric } : {}),
+            ...(buffers.color ? { color: buffers.color } : {})
+        };
         try {
-            await source.read({
-                chunkIndex: sourceChunkIndex,
-                lod: 0,
-                ...buffers
-            } as any);
+            await source.read(request);
             callback(buffers, count, sourceStart - sourceChunkStart * sourceChunkSize, sourceChunkIndex);
         } finally {
             for (const layer of layers) {
@@ -542,89 +571,95 @@ const uploadContainer = async (
         const groupStart = sourceChunkStart + group * FULL_RESOLUTION_GROUP_CHUNKS;
         const groupEnd = Math.min(groupStart + FULL_RESOLUTION_GROUP_CHUNKS, sourceChunkEnd);
         const colorData = container.createGroupData('fullResColor', group) as Uint16Array;
-        const transformAData = singlePass ? container.createGroupData('transformA', group) as Uint32Array : null;
-        const transformBData = singlePass ? container.createGroupData('transformB', group) as Uint16Array : null;
+        const transformAData = singlePass ? (container.createGroupData('transformA', group) as Uint32Array) : null;
+        const transformBData = singlePass ? (container.createGroupData('transformB', group) as Uint16Array) : null;
         // The callback is synchronous and the groups are processed serially;
         // this keeps source buffers short-lived without retaining a closure
         // over the loop's mutable AABB variables.
-        // eslint-disable-next-line no-loop-func
-        await visitSourceChunks(source, pool, groupStart, groupEnd, ['position', 'geometric', 'color'], (buffers, count, _destinationStart, sourceChunkIndex) => {
-            const positionData = new Float32Array(buffers.position.data, 0, count * 3);
-            const geometricData = new Float32Array(buffers.geometric.data, 0, count * 8);
-            const colorValues = new Float32Array(buffers.color.data, 0, count * colorStride);
-            const layerOffset = (sourceChunkIndex - groupStart) * source.meta.chunkSize * 4;
-            const transformA = transformAData;
-            const transformAFloat = transformA ? new Float32Array(
-                transformA.buffer,
-                transformA.byteOffset,
-                transformA.byteLength / 4
-            ) : null;
-            const transformB = transformBData;
 
-            for (let i = 0; i < count; i++) {
-                const positionIndex = i * 3;
-                const geometricIndex = i * 8;
-                const colorIndex = i * colorStride;
-                const px = positionData[positionIndex];
-                const py = positionData[positionIndex + 1];
-                const pz = positionData[positionIndex + 2];
-                const globalIndex = sourceChunkIndex * source.meta.chunkSize + i;
-                const centerIndex = globalIndex * 3;
-                if (centers) {
-                    centers[centerIndex] = px;
-                    centers[centerIndex + 1] = py;
-                    centers[centerIndex + 2] = pz;
-                }
+        await visitSourceChunks(
+            source,
+            pool,
+            groupStart,
+            groupEnd,
+            ['position', 'geometric', 'color'],
+            (buffers, count, _destinationStart, sourceChunkIndex) => {
+                const positionData = new Float32Array(buffers.position.data, 0, count * 3);
+                const geometricData = new Float32Array(buffers.geometric.data, 0, count * 8);
+                const colorValues = new Float32Array(buffers.color.data, 0, count * colorStride);
+                const layerOffset = (sourceChunkIndex - groupStart) * source.meta.chunkSize * 4;
+                const transformA = transformAData;
+                const transformAFloat = transformA
+                    ? new Float32Array(transformA.buffer, transformA.byteOffset, transformA.byteLength / 4)
+                    : null;
+                const transformB = transformBData;
 
-                const rawScaleX = geometricData[geometricIndex + 4];
-                const rawScaleY = geometricData[geometricIndex + 5];
-                const rawScaleZ = geometricData[geometricIndex + 6];
-                const scale = Math.exp(Math.max(rawScaleX, rawScaleY, rawScaleZ));
-                const colorValue = layerOffset + i * 4;
-                colorData[colorValue] = float2Half(colorValues[colorIndex] * SH_C0 + 0.5);
-                colorData[colorValue + 1] = float2Half(colorValues[colorIndex + 1] * SH_C0 + 0.5);
-                colorData[colorValue + 2] = float2Half(colorValues[colorIndex + 2] * SH_C0 + 0.5);
-                colorData[colorValue + 3] = float2Half(sigmoid(geometricData[geometricIndex + 7]));
-
-                if (isFinite(px) && isFinite(py) && isFinite(pz) && isFinite(scale)) {
-                    const extent = 2 * scale;
-                    minX = Math.min(minX, px - extent);
-                    minY = Math.min(minY, py - extent);
-                    minZ = Math.min(minZ, pz - extent);
-                    maxX = Math.max(maxX, px + extent);
-                    maxY = Math.max(maxY, py + extent);
-                    maxZ = Math.max(maxZ, pz + extent);
-                }
-
-                if (singlePass) {
-                    const qx = geometricData[geometricIndex + 1];
-                    const qy = geometricData[geometricIndex + 2];
-                    const qz = geometricData[geometricIndex + 3];
-                    let qw = geometricData[geometricIndex];
-                    const qLength = Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw) || 1;
-                    let normalizedQx = qx / qLength;
-                    let normalizedQy = qy / qLength;
-                    let normalizedQz = qz / qLength;
-                    qw /= qLength;
-                    if (qw < 0) {
-                        normalizedQx = -normalizedQx;
-                        normalizedQy = -normalizedQy;
-                        normalizedQz = -normalizedQz;
-                        qw = -qw;
+                for (let i = 0; i < count; i++) {
+                    const positionIndex = i * 3;
+                    const geometricIndex = i * 8;
+                    const colorIndex = i * colorStride;
+                    const px = positionData[positionIndex];
+                    const py = positionData[positionIndex + 1];
+                    const pz = positionData[positionIndex + 2];
+                    const globalIndex = sourceChunkIndex * source.meta.chunkSize + i;
+                    const centerIndex = globalIndex * 3;
+                    if (centers) {
+                        centers[centerIndex] = px;
+                        centers[centerIndex + 1] = py;
+                        centers[centerIndex + 2] = pz;
                     }
 
-                    const transformValueIndex = layerOffset + i * 4;
-                    transformAFloat![transformValueIndex] = px;
-                    transformAFloat![transformValueIndex + 1] = py;
-                    transformAFloat![transformValueIndex + 2] = pz;
-                    transformA![transformValueIndex + 3] = float2Half(normalizedQx) | float2Half(normalizedQy) << 16;
-                    transformB![transformValueIndex] = float2Half(Math.exp(geometricData[geometricIndex + 4]));
-                    transformB![transformValueIndex + 1] = float2Half(Math.exp(geometricData[geometricIndex + 5]));
-                    transformB![transformValueIndex + 2] = float2Half(Math.exp(geometricData[geometricIndex + 6]));
-                    transformB![transformValueIndex + 3] = float2Half(normalizedQz);
+                    const rawScaleX = geometricData[geometricIndex + 4];
+                    const rawScaleY = geometricData[geometricIndex + 5];
+                    const rawScaleZ = geometricData[geometricIndex + 6];
+                    const scale = Math.exp(Math.max(rawScaleX, rawScaleY, rawScaleZ));
+                    const colorValue = layerOffset + i * 4;
+                    colorData[colorValue] = float2Half(colorValues[colorIndex] * SH_C0 + 0.5);
+                    colorData[colorValue + 1] = float2Half(colorValues[colorIndex + 1] * SH_C0 + 0.5);
+                    colorData[colorValue + 2] = float2Half(colorValues[colorIndex + 2] * SH_C0 + 0.5);
+                    colorData[colorValue + 3] = float2Half(sigmoid(geometricData[geometricIndex + 7]));
+
+                    if (isFinite(px) && isFinite(py) && isFinite(pz) && isFinite(scale)) {
+                        const extent = 2 * scale;
+                        minX = Math.min(minX, px - extent);
+                        minY = Math.min(minY, py - extent);
+                        minZ = Math.min(minZ, pz - extent);
+                        maxX = Math.max(maxX, px + extent);
+                        maxY = Math.max(maxY, py + extent);
+                        maxZ = Math.max(maxZ, pz + extent);
+                    }
+
+                    if (singlePass) {
+                        const qx = geometricData[geometricIndex + 1];
+                        const qy = geometricData[geometricIndex + 2];
+                        const qz = geometricData[geometricIndex + 3];
+                        let qw = geometricData[geometricIndex];
+                        const qLength = Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw) || 1;
+                        let normalizedQx = qx / qLength;
+                        let normalizedQy = qy / qLength;
+                        let normalizedQz = qz / qLength;
+                        qw /= qLength;
+                        if (qw < 0) {
+                            normalizedQx = -normalizedQx;
+                            normalizedQy = -normalizedQy;
+                            normalizedQz = -normalizedQz;
+                            qw = -qw;
+                        }
+
+                        const transformValueIndex = layerOffset + i * 4;
+                        transformAFloat![transformValueIndex] = px;
+                        transformAFloat![transformValueIndex + 1] = py;
+                        transformAFloat![transformValueIndex + 2] = pz;
+                        transformA![transformValueIndex + 3] =
+                            float2Half(normalizedQx) | (float2Half(normalizedQy) << 16);
+                        transformB![transformValueIndex] = float2Half(Math.exp(geometricData[geometricIndex + 4]));
+                        transformB![transformValueIndex + 1] = float2Half(Math.exp(geometricData[geometricIndex + 5]));
+                        transformB![transformValueIndex + 2] = float2Half(Math.exp(geometricData[geometricIndex + 6]));
+                        transformB![transformValueIndex + 3] = float2Half(normalizedQz);
+                    }
                 }
             }
-        });
+        );
         container.uploadGroup('fullResColor', group, colorData);
         if (singlePass) {
             container.uploadGroup('transformA', group, transformAData!);
@@ -642,47 +677,58 @@ const uploadContainer = async (
             const groupEnd = Math.min(groupStart + FULL_RESOLUTION_GROUP_CHUNKS, sourceChunkEnd);
             const transformAData = container.createGroupData('transformA', group) as Uint32Array;
             const transformBData = container.createGroupData('transformB', group) as Uint16Array;
-            await visitSourceChunks(source, pool, groupStart, groupEnd, ['position', 'geometric'], (buffers, count, _destinationStart, sourceChunkIndex) => {
-                const positionData = new Float32Array(buffers.position.data, 0, count * 3);
-                const geometricData = new Float32Array(buffers.geometric.data, 0, count * 8);
-                const layerOffset = (sourceChunkIndex - groupStart) * source.meta.chunkSize * 4;
-                const transformA = transformAData;
-                const transformAFloat = new Float32Array(transformA.buffer, transformA.byteOffset, transformA.byteLength / 4);
-                const transformB = transformBData;
+            await visitSourceChunks(
+                source,
+                pool,
+                groupStart,
+                groupEnd,
+                ['position', 'geometric'],
+                (buffers, count, _destinationStart, sourceChunkIndex) => {
+                    const positionData = new Float32Array(buffers.position.data, 0, count * 3);
+                    const geometricData = new Float32Array(buffers.geometric.data, 0, count * 8);
+                    const layerOffset = (sourceChunkIndex - groupStart) * source.meta.chunkSize * 4;
+                    const transformA = transformAData;
+                    const transformAFloat = new Float32Array(
+                        transformA.buffer,
+                        transformA.byteOffset,
+                        transformA.byteLength / 4
+                    );
+                    const transformB = transformBData;
 
-                for (let i = 0; i < count; i++) {
-                    const positionIndex = i * 3;
-                    const geometricIndex = i * 8;
-                    const px = positionData[positionIndex];
-                    const py = positionData[positionIndex + 1];
-                    const pz = positionData[positionIndex + 2];
-                    const qx = geometricData[geometricIndex + 1];
-                    const qy = geometricData[geometricIndex + 2];
-                    const qz = geometricData[geometricIndex + 3];
-                    let qw = geometricData[geometricIndex];
-                    const qLength = Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw) || 1;
-                    let normalizedQx = qx / qLength;
-                    let normalizedQy = qy / qLength;
-                    let normalizedQz = qz / qLength;
-                    qw /= qLength;
-                    if (qw < 0) {
-                        normalizedQx = -normalizedQx;
-                        normalizedQy = -normalizedQy;
-                        normalizedQz = -normalizedQz;
-                        qw = -qw;
+                    for (let i = 0; i < count; i++) {
+                        const positionIndex = i * 3;
+                        const geometricIndex = i * 8;
+                        const px = positionData[positionIndex];
+                        const py = positionData[positionIndex + 1];
+                        const pz = positionData[positionIndex + 2];
+                        const qx = geometricData[geometricIndex + 1];
+                        const qy = geometricData[geometricIndex + 2];
+                        const qz = geometricData[geometricIndex + 3];
+                        let qw = geometricData[geometricIndex];
+                        const qLength = Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw) || 1;
+                        let normalizedQx = qx / qLength;
+                        let normalizedQy = qy / qLength;
+                        let normalizedQz = qz / qLength;
+                        qw /= qLength;
+                        if (qw < 0) {
+                            normalizedQx = -normalizedQx;
+                            normalizedQy = -normalizedQy;
+                            normalizedQz = -normalizedQz;
+                            qw = -qw;
+                        }
+
+                        const valueIndex = layerOffset + i * 4;
+                        transformAFloat[valueIndex] = px;
+                        transformAFloat[valueIndex + 1] = py;
+                        transformAFloat[valueIndex + 2] = pz;
+                        transformA[valueIndex + 3] = float2Half(normalizedQx) | (float2Half(normalizedQy) << 16);
+                        transformB[valueIndex] = float2Half(Math.exp(geometricData[geometricIndex + 4]));
+                        transformB[valueIndex + 1] = float2Half(Math.exp(geometricData[geometricIndex + 5]));
+                        transformB[valueIndex + 2] = float2Half(Math.exp(geometricData[geometricIndex + 6]));
+                        transformB[valueIndex + 3] = float2Half(normalizedQz);
                     }
-
-                    const valueIndex = layerOffset + i * 4;
-                    transformAFloat[valueIndex] = px;
-                    transformAFloat[valueIndex + 1] = py;
-                    transformAFloat[valueIndex + 2] = pz;
-                    transformA[valueIndex + 3] = float2Half(normalizedQx) | float2Half(normalizedQy) << 16;
-                    transformB[valueIndex] = float2Half(Math.exp(geometricData[geometricIndex + 4]));
-                    transformB[valueIndex + 1] = float2Half(Math.exp(geometricData[geometricIndex + 5]));
-                    transformB[valueIndex + 2] = float2Half(Math.exp(geometricData[geometricIndex + 6]));
-                    transformB[valueIndex + 3] = float2Half(normalizedQz);
                 }
-            });
+            );
             container.uploadGroup('transformA', group, transformAData);
             container.uploadGroup('transformB', group, transformBData);
             pool.trim(0);
@@ -718,7 +764,8 @@ const createFullResolutionPlyResourceFromSource = async (
     device: GraphicsDevice,
     options: FullResolutionSourceOptions
 ): Promise<FullResolutionPlyResource> => {
-    const hasGaussianLayers = source.meta.availableLayers.has('position') &&
+    const hasGaussianLayers =
+        source.meta.availableLayers.has('position') &&
         source.meta.availableLayers.has('geometric') &&
         source.meta.availableLayers.has('color');
     if (!hasGaussianLayers || source.meta.numLods !== 1 || source.meta.numGaussians <= 0) {
@@ -729,7 +776,13 @@ const createFullResolutionPlyResourceFromSource = async (
     const sourceChunkSize = source.meta.chunkSize;
     const sourceChunkCount = source.meta.numChunks[0];
     const groupCount = Math.ceil(sourceChunkCount / FULL_RESOLUTION_GROUP_CHUNKS);
-    const { format, declarations } = createFullResolutionFormat(device, groupCount, sourceChunkSize, readGLSL, readWGSL);
+    const { format, declarations } = createFullResolutionFormat(
+        device,
+        groupCount,
+        sourceChunkSize,
+        readGLSL,
+        readWGSL
+    );
     const uploadPool = createChunkDataPool({ chunkSize: sourceChunkSize });
     const chunks: FullResolutionContainer[] = [];
     const shBands = 0;
@@ -836,10 +889,15 @@ const loadFullResolutionPly = async (
     const source = sources[0];
 
     try {
-        const hasGaussianLayers = source.meta.availableLayers.has('position') &&
+        const hasGaussianLayers =
+            source.meta.availableLayers.has('position') &&
             source.meta.availableLayers.has('geometric') &&
             source.meta.availableLayers.has('color');
-        if (!hasGaussianLayers || source.meta.numLods !== 1 || source.meta.numGaussians <= FULL_RESOLUTION_NEAR_GAUSSIANS) {
+        if (
+            !hasGaussianLayers ||
+            source.meta.numLods !== 1 ||
+            source.meta.numGaussians <= FULL_RESOLUTION_NEAR_GAUSSIANS
+        ) {
             return null;
         }
 

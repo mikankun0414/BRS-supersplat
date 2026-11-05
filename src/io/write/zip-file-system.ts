@@ -23,7 +23,9 @@ class ZipFileSystem implements FileSystem {
             await this.writer.write(bytes);
             this.offset = next;
         } catch (error) {
-            await this.abort().catch(() => {});
+            await this.abort().catch(() => {
+                // Abort can fail after the writer is already closed.
+            });
             throw error;
         }
     }
@@ -85,7 +87,9 @@ class ZipFileSystem implements FileSystem {
         return result;
     }
 
-    async mkdir(_path: string): Promise<void> {}
+    async mkdir(_path: string): Promise<void> {
+        // ZIP entries are flat filenames.
+    }
 
     async abort(): Promise<void> {
         if (this.stopped) return;
@@ -122,7 +126,9 @@ class ZipFileSystem implements FileSystem {
                     v.setUint16(at + 2, extra, true);
                     at += 4;
                     if (largeSize) {
-                        put64(v, at, entry.size); put64(v, at + 8, entry.size); at += 16;
+                        put64(v, at, entry.size);
+                        put64(v, at + 8, entry.size);
+                        at += 16;
                     }
                     if (largeOffset) put64(v, at, entry.offset);
                 }
@@ -138,8 +144,10 @@ class ZipFileSystem implements FileSystem {
                 put64(v, 4, 44);
                 v.setUint16(12, 45, true);
                 v.setUint16(14, 45, true);
-                put64(v, 24, count); put64(v, 32, count);
-                put64(v, 40, size); put64(v, 48, start);
+                put64(v, 24, count);
+                put64(v, 32, count);
+                put64(v, 40, size);
+                put64(v, 48, start);
                 v.setUint32(56, 0x07064b50, true);
                 put64(v, 64, recordOffset);
                 v.setUint32(72, 1, true);
@@ -156,7 +164,9 @@ class ZipFileSystem implements FileSystem {
             await this.writer.close();
             this.stopped = true;
         } catch (error) {
-            await this.abort().catch(() => {});
+            await this.abort().catch(() => {
+                // Abort can fail after the writer is already closed.
+            });
             throw error;
         }
     }

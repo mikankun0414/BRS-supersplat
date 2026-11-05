@@ -24,19 +24,31 @@ const getExtension = (filename: string) => {
 
 const getMimeType = (filename: string) => {
     switch (getExtension(filename)) {
-        case '.gltf': return 'model/gltf+json';
-        case '.glb': return 'model/gltf-binary';
-        case '.bin': return 'application/octet-stream';
+        case '.gltf':
+            return 'model/gltf+json';
+        case '.glb':
+            return 'model/gltf-binary';
+        case '.bin':
+            return 'application/octet-stream';
         case '.jpg':
-        case '.jpeg': return 'image/jpeg';
-        case '.png': return 'image/png';
-        case '.webp': return 'image/webp';
-        case '.avif': return 'image/avif';
-        case '.gif': return 'image/gif';
-        case '.svg': return 'image/svg+xml';
-        case '.ktx2': return 'image/ktx2';
-        case '.basis': return 'application/octet-stream';
-        default: return 'application/octet-stream';
+        case '.jpeg':
+            return 'image/jpeg';
+        case '.png':
+            return 'image/png';
+        case '.webp':
+            return 'image/webp';
+        case '.avif':
+            return 'image/avif';
+        case '.gif':
+            return 'image/gif';
+        case '.svg':
+            return 'image/svg+xml';
+        case '.ktx2':
+            return 'image/ktx2';
+        case '.basis':
+            return 'application/octet-stream';
+        default:
+            return 'application/octet-stream';
     }
 };
 
@@ -98,7 +110,7 @@ class LocalResourceResolver {
     private readonly urlCache = new Map<ModelImportFile, string>();
 
     constructor(files: ModelImportFile[], mainFilename: string, urls: string[]) {
-        this.files = files.filter(file => !!file.contents);
+        this.files = files.filter((file) => !!file.contents);
         const mainPath = normalizePath(mainFilename);
         const separator = mainPath.lastIndexOf('/');
         this.mainDirectory = separator === -1 ? '' : mainPath.substring(0, separator + 1);
@@ -108,20 +120,17 @@ class LocalResourceResolver {
     resolve(uri: string) {
         const resourcePath = uri.split(/[?#]/)[0];
         const normalizedUri = normalizePath(resourcePath);
-        const candidates = [
-            normalizePath(`${this.mainDirectory}${resourcePath}`),
-            normalizedUri
-        ];
+        const candidates = [normalizePath(`${this.mainDirectory}${resourcePath}`), normalizedUri];
 
         for (const candidate of candidates) {
-            const match = this.files.find(file => normalizePath(file.filename) === candidate);
+            const match = this.files.find((file) => normalizePath(file.filename) === candidate);
             if (match) {
                 return match;
             }
         }
 
         const basename = getBasename(resourcePath);
-        const basenameMatches = this.files.filter(file => getBasename(file.filename) === basename);
+        const basenameMatches = this.files.filter((file) => getBasename(file.filename) === basename);
         return basenameMatches.length === 1 ? basenameMatches[0] : null;
     }
 
@@ -141,11 +150,18 @@ class LocalResourceResolver {
     }
 }
 
-const rewriteGltfUris = (gltf: any, resolver: LocalResourceResolver, mainFilename: string) => {
+type GltfUriResource = { uri?: string };
+
+type GltfJson = {
+    buffers?: GltfUriResource[];
+    images?: GltfUriResource[];
+};
+
+const rewriteGltfUris = (gltf: GltfJson, resolver: LocalResourceResolver, mainFilename: string) => {
     const resources = [...(gltf.buffers ?? []), ...(gltf.images ?? [])];
     let changed = false;
 
-    resources.forEach((resource: any) => {
+    resources.forEach((resource) => {
         if (typeof resource.uri !== 'string' || isExternalUri(resource.uri)) {
             return;
         }
@@ -154,7 +170,7 @@ const rewriteGltfUris = (gltf: any, resolver: LocalResourceResolver, mainFilenam
         if (!file) {
             throw new Error(
                 `Missing glTF resource '${resource.uri}' referenced by '${mainFilename}'. ` +
-                'Select the .bin and texture files together with the .gltf file.'
+                    'Select the .bin and texture files together with the .gltf file.'
             );
         }
 
@@ -175,11 +191,7 @@ const GLB_JSON_CHUNK = 0x4e4f534a;
 
 const padToFourBytes = (length: number) => (length + 3) & ~3;
 
-const rewriteGlbContents = (
-    contents: ArrayBuffer,
-    resolver: LocalResourceResolver,
-    mainFilename: string
-) => {
+const rewriteGlbContents = (contents: ArrayBuffer, resolver: LocalResourceResolver, mainFilename: string) => {
     if (contents.byteLength < 12) {
         return contents;
     }
@@ -254,13 +266,15 @@ const prepareModelSource = async (files: ModelImportFile[], mainFile: ModelImpor
         return {
             url: mainFile.url,
             contents: null,
-            cleanup: () => {}
+            cleanup() {
+                // No object URLs were created.
+            }
         };
     }
 
     const urls: string[] = [];
     const cleanup = () => {
-        urls.splice(0).forEach(url => URL.revokeObjectURL(url));
+        urls.splice(0).forEach((url) => URL.revokeObjectURL(url));
     };
 
     try {

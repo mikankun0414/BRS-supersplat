@@ -1,11 +1,15 @@
-import { Events } from '../events';
+import type { Events } from '../events';
 import { opFromModifiers } from '../select-op';
 
 class SphereBrushSelection {
     activate: () => void;
     deactivate: () => void;
 
-    constructor(events: Events, parent: HTMLElement, mask: { canvas: HTMLCanvasElement, context: CanvasRenderingContext2D, busy: boolean }) {
+    constructor(
+        events: Events,
+        parent: HTMLElement,
+        mask: { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D; busy: boolean }
+    ) {
         // create svg
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.classList.add('tool-svg', 'hidden');
@@ -19,7 +23,11 @@ class SphereBrushSelection {
         gradient.setAttribute('cx', '37%');
         gradient.setAttribute('cy', '33%');
         gradient.setAttribute('r', '72%');
-        [['0%', '0.5'], ['55%', '0.25'], ['100%', '0.08']].forEach(([offset, opacity]) => {
+        [
+            ['0%', '0.5'],
+            ['55%', '0.25'],
+            ['100%', '0.08']
+        ].forEach(([offset, opacity]) => {
             const stop = document.createElementNS(svg.namespaceURI, 'stop');
             stop.setAttribute('offset', offset);
             stop.setAttribute('stop-color', '#f60');
@@ -41,16 +49,20 @@ class SphereBrushSelection {
 
         const prev = { x: 0, y: 0 };
         let dragId: number | undefined;
-        const points: { x: number, y: number, radius: number }[] = [];
+        const points: { x: number; y: number; radius: number }[] = [];
 
         // track the pointer while the tool is inactive too (the tools overlay is
         // hidden then), so activation places the cursor at the mouse rather than
         // wherever the previous stroke ended
         const pointer = { x: 0, y: 0 };
-        window.addEventListener('pointermove', (e: PointerEvent) => {
-            pointer.x = e.clientX;
-            pointer.y = e.clientY;
-        }, { capture: true, passive: true });
+        window.addEventListener(
+            'pointermove',
+            (e: PointerEvent) => {
+                pointer.x = e.clientX;
+                pointer.y = e.clientY;
+            },
+            { capture: true, passive: true }
+        );
 
         // append a stroke sample, interpolating extra samples so consecutive
         // points sit at most a fraction of the brush radius apart
@@ -67,7 +79,7 @@ class SphereBrushSelection {
             const spacing = Math.max(2, Math.min(last.radius, radius) * 0.25);
             const steps = Math.floor(distance / spacing);
             for (let i = 1; i <= steps; ++i) {
-                const t = i * spacing / distance;
+                const t = (i * spacing) / distance;
                 points.push({
                     x: last.x + dx * t,
                     y: last.y + dy * t,
@@ -177,14 +189,16 @@ class SphereBrushSelection {
 
                 dragEnd();
 
-                // block new strokes until the async selection has consumed the
-                // shared mask canvas and finished its depth picking
+                // the selection snapshots the canvas and camera synchronously
+                // when invoked, so busy is UX policy rather than correctness:
+                // it keeps strokes from piling up invisibly behind a slow
+                // selection (pointerdown swallows them)
                 mask.busy = true;
                 try {
                     await events.invoke(
                         'select.bySphereBrush',
                         opFromModifiers(e),
-                        points.map(point => ({
+                        points.map((point) => ({
                             x: point.x / canvas.width,
                             y: point.y / canvas.height,
                             radius: point.radius
@@ -208,7 +222,11 @@ class SphereBrushSelection {
         const wheel = (e: WheelEvent) => {
             if (e.altKey || e.metaKey) {
                 const { deltaX, deltaY } = e;
-                events.fire((Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY) > 0 ? 'tool.brushSelection.smaller' : 'tool.brushSelection.bigger');
+                events.fire(
+                    (Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY) > 0
+                        ? 'tool.brushSelection.smaller'
+                        : 'tool.brushSelection.bigger'
+                );
                 e.preventDefault();
                 e.stopPropagation();
             }

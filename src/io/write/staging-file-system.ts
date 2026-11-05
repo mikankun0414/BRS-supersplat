@@ -9,7 +9,11 @@ class StagingFileSystem implements FileSystem {
     private memoryBytes = 0;
     private disposed = false;
 
-    private constructor(private root?: FileSystemDirectoryHandle, private directory?: FileSystemDirectoryHandle, private name?: string) {}
+    private constructor(
+        private root?: FileSystemDirectoryHandle,
+        private directory?: FileSystemDirectoryHandle,
+        private name?: string
+    ) {}
 
     static async create(): Promise<StagingFileSystem> {
         if (typeof navigator !== 'undefined' && navigator.storage?.getDirectory) {
@@ -42,7 +46,10 @@ class StagingFileSystem implements FileSystem {
                 if (closed || owner.disposed) throw new Error('Staging writer is closed');
                 if (stream) await stream.write(data as unknown as ArrayBuffer);
                 else {
-                    if (owner.memoryBytes + data.length > MEMORY_LIMIT) throw new Error('Large download requires browser disk storage (OPFS) or a native file destination. Memory fallback is limited to 128 MiB.');
+                    if (owner.memoryBytes + data.length > MEMORY_LIMIT)
+                        throw new Error(
+                            'Large download requires browser disk storage (OPFS) or a native file destination. Memory fallback is limited to 128 MiB.'
+                        );
                     // Blob snapshots the bytes before a producer reuses its buffer.
                     parts.push(new Blob([data as BlobPart]));
                     owner.memoryBytes += data.length;
@@ -62,14 +69,20 @@ class StagingFileSystem implements FileSystem {
                 closed = true;
                 parts.length = 0;
                 owner.active.delete(writer);
-                if (stream) await stream.abort().catch(() => {});
+                if (stream) {
+                    await stream.abort().catch(() => {
+                        // The backing stream may already be closed.
+                    });
+                }
             }
         };
         this.active.add(writer);
         return writer;
     }
 
-    async mkdir(_path: string): Promise<void> {}
+    async mkdir(_path: string): Promise<void> {
+        // Staged files are flat; directories are not created.
+    }
 
     async blob(filename: string): Promise<Blob> {
         const entry = this.files.get(filename);
@@ -87,7 +100,8 @@ class StagingFileSystem implements FileSystem {
                 }
                 await writer.close();
             } catch (error) {
-                await writer.abort(); throw error;
+                await writer.abort();
+                throw error;
             }
         }
     }
@@ -95,7 +109,7 @@ class StagingFileSystem implements FileSystem {
     async dispose(): Promise<void> {
         if (!this.disposed) {
             this.disposed = true;
-            await Promise.all(Array.from(this.active, writer => writer.abort()));
+            await Promise.all(Array.from(this.active, (writer) => writer.abort()));
             this.files.clear();
             this.memoryBytes = 0;
         }

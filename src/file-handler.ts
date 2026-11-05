@@ -2,88 +2,104 @@ import { GltfExporter, path, Quat, Vec3 } from 'playcanvas';
 
 import type { Pose } from './camera-poses';
 import { CreateDropHandler, resolveHandleFiles } from './drop-handler';
+import type { CommandOptions } from './editor-command';
+import { checkCancelled } from './editor-command';
 import { ElementType } from './element';
-import { Events } from './events';
-import { buildExportOptions, ExportChoices, ExportDialogResult, ExportType, SceneExportOptions } from './export-options';
-import { ExportSettings, loadExportSettings, saveExportSettings } from './export-settings';
-import { BlobReadSource, BrowserFileSystem, MappedReadFileSystem, pickWriteTarget, sourcesOf, WriteTarget } from './io';
+import type { Element } from './element';
+import type { Events } from './events';
+import { buildExportOptions } from './export-options';
+import type { ExportChoices, ExportDialogResult, ExportType, SceneExportOptions } from './export-options';
+import { loadExportSettings, saveExportSettings } from './export-settings';
+import type { ExportSettings } from './export-settings';
+import { BrowserFileSystem, MappedReadFileSystem, pickWriteTarget, sourcesOf } from './io';
+import type { BlobReadSource, WriteTarget } from './io';
 import { GltfModel } from './model';
-import { isGltfModel, ModelImportFile } from './model-loader';
-import { recentImports, RecentImport } from './recent-files';
-import { Scene } from './scene';
-import { Splat } from './splat';
-import { serializeSog, serializeSpz, serializeViewer, SogSettings, SpzSettings, WebGPUUnavailableError, writeSplatFile } from './splat-serialize';
+import { isGltfModel } from './model-loader';
+import type { ModelImportFile } from './model-loader';
+import { recentImports } from './recent-files';
+import type { RecentImport } from './recent-files';
+import type { Scene } from './scene';
+import type { Splat } from './splat';
+import { serializeSog, serializeSpz, serializeViewer, WebGPUUnavailableError, writeSplatFile } from './splat-serialize';
+import type { SogSettings, SpzSettings } from './splat-serialize';
 import { i18n } from './ui/localization';
 
 // ts compiler and vscode find this type, but eslint does not
 type FilePickerAcceptType = unknown;
 
+type FileOperationOptions = CommandOptions & {
+    throwOnError?: boolean;
+    attach?: boolean;
+    splats?: Splat[];
+    lod?: number;
+};
+
 type FileType = 'ply' | 'compressedPly' | 'splat' | 'sog' | 'spz' | 'htmlViewer' | 'packageViewer';
 
-const filePickerTypes: { [key: string]: FilePickerAcceptType } = {
-    'ply': {
+const filePickerTypes: Record<string, FilePickerAcceptType> = {
+    ply: {
         description: 'Gaussian Splat PLY File',
         accept: {
             'application/ply': ['.ply']
         }
     },
-    'compressedPly': {
+    compressedPly: {
         description: 'Compressed Gaussian Splat PLY File',
         accept: {
             'application/ply': ['.ply']
         }
     },
-    'sog': {
+    sog: {
         description: 'SOG Scene',
         accept: {
             'application/x-gaussian-splat': ['.json', '.sog'],
             'image/webp': ['.webp']
         }
     },
-    'lcc': {
+    lcc: {
         description: 'LCC Scene',
         accept: {
             'application/x-lcc': ['.lcc', '.lcc2', '.bin']
         }
     },
-    'splat': {
+    splat: {
         description: 'Splat File',
         accept: {
             'application/x-gaussian-splat': ['.splat']
         }
     },
-    'ksplat': {
+    ksplat: {
         description: 'KSplat File',
         accept: {
             'application/x-gaussian-splat': ['.ksplat']
         }
     },
-    'spz': {
+    spz: {
         description: 'SPZ File (Niantic)',
         accept: {
             'application/x-gaussian-splat': ['.spz']
         }
     },
-    'gltf': {
+    gltf: {
         description: 'glTF 3D Model',
         accept: {
             'model/gltf+json': ['.gltf'],
             'model/gltf-binary': ['.glb']
         }
     },
-    'indexTxt': {
+    indexTxt: {
         description: 'Colmap Poses (Images.txt)',
         accept: {
             'text/plain': ['.txt']
         }
     },
-    'htmlViewer': {
+    htmlViewer: {
         description: 'Viewer HTML',
         accept: {
             'text/html': ['.html']
         }
     },
-    'packageViewer': {
+    packageViewer: {
         description: 'Viewer ZIP',
         accept: {
             'application/zip': ['.zip']
@@ -111,7 +127,6 @@ const isPlySequence = (filenames: string[]) => {
         return false;
     }
 
-    // eslint-disable-next-line regexp/no-super-linear-backtracking
     const regex = /(.*?)(\d+)(?:\.compressed)?\.ply$/;
     const baseMatch = filenames[0].match(regex);
     if (!baseMatch) {
@@ -164,19 +179,32 @@ type ImportFile = {
 // together that make up one model (unbundled SOG, LCC, PLY sequence) count once.
 // Documents are tracked by Open Recent instead.
 const recordImports = (files: ImportFile[]) => {
-    const roots = Array.from(new Set(files.map(f => f.root ?? f.handle)));
-    if (roots.length === 0 || roots.some(root => !root)) {
+    const roots = Array.from(new Set(files.map((f) => f.root ?? f.handle)));
+    if (roots.length === 0 || roots.some((root) => !root)) {
         // url loads and document layers have no handles
         return;
     }
 
-    const filenames = files.map(f => f.filename.toLowerCase());
+    const filenames = files.map((f) => f.filename.toLowerCase());
     if (roots.length > 1 && (isPlySequence(filenames) || isSog(filenames) || isLcc(filenames))) {
         recentImports.add({ name: files[findMainIndex(filenames)].filename, handles: roots });
     } else {
-        roots.filter(root => !root.name.toLowerCase().endsWith('.ssproj'))
-        .forEach(root => recentImports.add({ name: root.name, handles: [root] }));
+        roots
+            .filter((root) => !root.name.toLowerCase().endsWith('.ssproj'))
+            .forEach((root) => recentImports.add({ name: root.name, handles: [root] }));
     }
+};
+
+// inria camera pose json entry
+type CameraPose = {
+    id?: string | number;
+    img_name?: string;
+    position?: number[];
+    rotation?: number[][];
+    fx?: number;
+    fy?: number;
+    width?: number;
+    height?: number;
 };
 
 const vec = new Vec3();
@@ -184,19 +212,22 @@ const vec = new Vec3();
 // load inria camera poses from json file
 const loadCameraPoses = async (file: ImportFile, events: Events) => {
     const response = new Response(file.contents);
-    const json = await response.json();
+    const json: CameraPose[] = await response.json();
 
     if (json.length > 0) {
         // sort entries by trailing number if it exists
-        const sorter = (a: any, b: any) => {
+        const sorter = (a: CameraPose, b: CameraPose) => {
             const avalue = a.id ?? a.img_name?.match(/\d*$/)?.[0];
             const bvalue = b.id ?? b.img_name?.match(/\d*$/)?.[0];
-            return (avalue && bvalue) ? parseInt(avalue, 10) - parseInt(bvalue, 10) : 0;
+            return avalue && bvalue ? parseInt(avalue as string, 10) - parseInt(bvalue as string, 10) : 0;
         };
 
         const poses: Pose[] = [];
-        json.sort(sorter).forEach((pose: any, i: number) => {
-            if (pose.hasOwnProperty('position') && pose.hasOwnProperty('rotation')) {
+        json.sort(sorter).forEach((pose, i) => {
+            if (
+                Object.prototype.hasOwnProperty.call(pose, 'position') &&
+                Object.prototype.hasOwnProperty.call(pose, 'rotation')
+            ) {
                 const p = new Vec3(pose.position);
                 const z = new Vec3(pose.rotation[0][2], pose.rotation[1][2], pose.rotation[2][2]);
 
@@ -237,31 +268,32 @@ const loadImagesTxt = async (file: ImportFile, events: Events) => {
     const text = await response.text();
 
     // split into lines, remove comments and empty lines
-    const poses = text.split('\n')
-    .map(line => line.trim())
-    .filter(line => !line.startsWith('#'))      // remove comments
-    .filter((_, i) => i % 2 === 0)              // remove every second line
-    .map((line, i) => {
-        const parts = line.split(' ');
-        if (parts.length !== 10) {
-            return null;
-        }
-        const name = parts[9];
-        const order = parseInt(removeExtension(name).match(/\d+$/)?.[0], 10);
-        return {
-            w: parseFloat(parts[1]),
-            x: parseFloat(parts[2]),
-            y: parseFloat(parts[3]),
-            z: parseFloat(parts[4]),
-            tx: parseFloat(parts[5]),
-            ty: parseFloat(parts[6]),
-            tz: parseFloat(parts[7]),
-            name: name ?? `${file.filename}_${i}`,
-            order: isFinite(order) ? order : i
-        };
-    })
-    .filter(entry => !!entry)
-    .sort((a, b) => (a.order < b.order ? -1 : 1));
+    const poses = text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => !line.startsWith('#')) // remove comments
+        .filter((_, i) => i % 2 === 0) // remove every second line
+        .map((line, i) => {
+            const parts = line.split(' ');
+            if (parts.length !== 10) {
+                return null;
+            }
+            const name = parts[9];
+            const order = parseInt(removeExtension(name).match(/\d+$/)?.[0], 10);
+            return {
+                w: parseFloat(parts[1]),
+                x: parseFloat(parts[2]),
+                y: parseFloat(parts[3]),
+                z: parseFloat(parts[4]),
+                tx: parseFloat(parts[5]),
+                ty: parseFloat(parts[6]),
+                tz: parseFloat(parts[7]),
+                name: name ?? `${file.filename}_${i}`,
+                order: isFinite(order) ? order : i
+            };
+        })
+        .filter((entry) => !!entry)
+        .sort((a, b) => (a.order < b.order ? -1 : 1));
 
     const q = new Quat();
     const t = new Vec3();
@@ -291,7 +323,6 @@ const loadImagesTxt = async (file: ImportFile, events: Events) => {
 
 // initialize file handler events
 const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) => {
-
     const showLoadError = async (message: string, filename: string) => {
         await events.invoke('showPopup', {
             type: 'error',
@@ -301,9 +332,9 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
     };
 
     // import splat model(s) - handles single files, SOG, and LCC formats
-    const importSplatModel = async (files: ImportFile[], animationFrame: boolean) => {
+    const importSplatModel = async (files: ImportFile[], animationFrame: boolean, operation?: FileOperationOptions) => {
         try {
-            const filenames = files.map(f => f.filename.toLowerCase());
+            const filenames = files.map((f) => f.filename.toLowerCase());
 
             const mainFile = files[findMainIndex(filenames)];
             const baseUrl = mainFile.url ? new URL('.', new URL(mainFile.url, window.location.href)).href : undefined;
@@ -312,28 +343,45 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
             const fileSystem = new MappedReadFileSystem(baseUrl);
             files.forEach((f) => {
                 if (f.contents) fileSystem.addFile(f.filename, f.contents, f.handle ?? null);
+                else if (operation && f.url) fileSystem.addUrl(f.filename, f.url);
             });
 
             // Multi-file container formats must load by their relative name so the
             // library resolves sibling files against the file system's baseUrl
             // (path-joining a full URL corrupts the 'http://' prefix)
             const lowerMainFilename = mainFile.filename.toLowerCase();
-            const isContainer = lowerMainFilename === 'meta.json' || lowerMainFilename === 'lod-meta.json' || lowerMainFilename.endsWith('.lcc') || lowerMainFilename.endsWith('.lcc2');
+            const isContainer =
+                lowerMainFilename === 'meta.json' ||
+                lowerMainFilename === 'lod-meta.json' ||
+                lowerMainFilename.endsWith('.lcc') ||
+                lowerMainFilename.endsWith('.lcc2');
 
             // For URL-only single file, use full URL as filename
-            const filename = (files.length === 1 && !mainFile.contents && mainFile.url && !isContainer) ?
-                mainFile.url :
-                mainFile.filename;
+            const filename =
+                !operation && files.length === 1 && !mainFile.contents && mainFile.url && !isContainer
+                    ? mainFile.url
+                    : mainFile.filename;
 
-            const model = await scene.assetLoader.load(filename, fileSystem, animationFrame);
+            const model = await scene.assetLoader.load(
+                filename,
+                fileSystem,
+                animationFrame,
+                false,
+                operation ? { lod: operation.lod } : undefined
+            );
             if (!model) {
                 // user cancelled the load
                 return null;
             }
             model.resource.fileSources = fileSystem.sources;
-            await scene.add(model);
+            if (operation?.signal?.aborted) {
+                model.destroy();
+                checkCancelled(operation);
+            }
+            if (operation?.attach !== false) await scene.add(model);
             return model;
         } catch (error) {
+            if (operation?.throwOnError) throw error;
             const displayName = files[0]?.filename ?? 'unknown';
             await showLoadError(error.message ?? error, displayName);
         }
@@ -346,23 +394,27 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
             await scene.add(model);
             return model;
         } catch (error) {
-            const displayName = files.find(file => isGltfModel(file.filename))?.filename ?? 'unknown';
-            await showLoadError((error as any).message ?? error, displayName);
+            const displayName = files.find((file) => isGltfModel(file.filename))?.filename ?? 'unknown';
+            const message = error instanceof Error ? error.message : String(error);
+            await showLoadError(message, displayName);
         }
     };
 
     // figure out what the set of files are (ply sequence, document, sog set, ply) and then import them
-    const importFiles = async (files: ImportFile[], animationFrame = false) => {
-        const filenames = files.map(f => f.filename.toLowerCase());
+    const importFiles = async (files: ImportFile[], animationFrame = false, operation?: FileOperationOptions) => {
+        const filenames = files.map((f) => f.filename.toLowerCase());
 
         const result: Splat[] = [];
 
         if (isPlySequence(filenames)) {
             // handle ply sequence
-            events.fire('sequence.setPlyFrames', files.map(f => f.contents));
+            events.fire(
+                'sequence.setPlyFrames',
+                files.map((f) => f.contents)
+            );
             events.fire('timeline.frame', 0);
         } else if (isSog(filenames) || isLcc(filenames)) {
-            const model = await importSplatModel(files, animationFrame);
+            const model = await importSplatModel(files, animationFrame, operation);
             if (model) result.push(model);
         } else if (filenames.some(isGltfModel)) {
             // Pass the complete selection to the container loader. A .gltf
@@ -380,7 +432,22 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
             // check for unrecognized file types
             for (let i = 0; i < filenames.length; i++) {
                 const filename = filenames[i].toLowerCase();
-                if (['.ssproj', '.ply', '.splat', '.sog', '.webp', 'images.txt', '.json', '.ksplat', '.spz', '.gltf', '.glb'].every(ext => !filename.endsWith(ext))) {
+                if (
+                    [
+                        '.ssproj',
+                        '.ply',
+                        '.splat',
+                        '.sog',
+                        '.webp',
+                        'images.txt',
+                        '.json',
+                        '.ksplat',
+                        '.spz',
+                        '.gltf',
+                        '.glb'
+                    ].every((ext) => !filename.endsWith(ext))
+                ) {
+                    if (operation?.throwOnError) throw new Error(`Unrecognized file type '${filename}'`);
                     await showLoadError('Unrecognized file type', filename);
                     return;
                 }
@@ -393,12 +460,12 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
                 if (filename.endsWith('.ssproj')) {
                     // load ssproj document. doc.load expects a File (the zip
                     // reader needs its size), so wrap url fetches in one
-                    const contents = files[i].contents ??
-                        new File([await (await fetch(files[i].url)).blob()], files[i].filename);
+                    const contents =
+                        files[i].contents ?? new File([await (await fetch(files[i].url)).blob()], files[i].filename);
                     await events.invoke('doc.load', contents, files[i].handle);
-                } else if (['.ply', '.splat', '.sog', '.ksplat', '.spz'].some(ext => filename.endsWith(ext))) {
+                } else if (['.ply', '.splat', '.sog', '.ksplat', '.spz'].some((ext) => filename.endsWith(ext))) {
                     // load gaussian splat model
-                    const model = await importSplatModel([files[i]], animationFrame);
+                    const model = await importSplatModel([files[i]], animationFrame, operation);
                     if (model) result.push(model);
                 } else if (filename.endsWith('images.txt')) {
                     // load colmap frames
@@ -410,15 +477,15 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
             }
         }
 
-        if (!animationFrame) {
+        if (!animationFrame && operation?.attach !== false) {
             recordImports(files);
         }
 
         return result;
     };
 
-    events.function('import', (files: ImportFile[], animationFrame = false) => {
-        return importFiles(files, animationFrame);
+    events.function('import', (files: ImportFile[], animationFrame = false, operation?: FileOperationOptions) => {
+        return importFiles(files, animationFrame, operation);
     });
 
     // create a file selector element as fallback when showOpenFilePicker isn't available
@@ -427,7 +494,10 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         fileSelector = document.createElement('input');
         fileSelector.setAttribute('id', 'file-selector');
         fileSelector.setAttribute('type', 'file');
-        fileSelector.setAttribute('accept', '.ply,.splat,meta.json,.json,.webp,.ssproj,.sog,.lcc,.lcc2,.bin,.txt,.ksplat,.spz,.gltf,.glb');
+        fileSelector.setAttribute(
+            'accept',
+            '.ply,.splat,meta.json,.json,.webp,.ssproj,.sog,.lcc,.lcc2,.bin,.txt,.ksplat,.spz,.gltf,.glb'
+        );
         fileSelector.setAttribute('multiple', 'true');
 
         fileSelector.onchange = () => {
@@ -446,26 +516,28 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
     }
 
     // create the file drag & drop handler
-    CreateDropHandler(dropTarget, (entries, shift) => {
-        importFiles(entries.map((e) => {
-            return {
-                filename: e.filename,
-                contents: e.file,
-                handle: e.handle,
-                root: e.root
-            };
-        }));
+    CreateDropHandler(dropTarget, (entries) => {
+        importFiles(
+            entries.map((e) => {
+                return {
+                    filename: e.filename,
+                    contents: e.file,
+                    handle: e.handle,
+                    root: e.root
+                };
+            })
+        );
     });
 
     // get the list of visible splats containing gaussians
     const getSplats = () => {
         return (scene.getElementsByType(ElementType.splat) as Splat[])
-        .filter(splat => splat.visible)
-        .filter(splat => splat.numSplats > 0);
+            .filter((splat) => splat.visible)
+            .filter((splat) => splat.numSplats > 0);
     };
 
     events.function('scene.allSplats', () => {
-        return (scene.getElementsByType(ElementType.splat) as Splat[]);
+        return scene.getElementsByType(ElementType.splat) as Splat[];
     });
 
     events.function('scene.splats', () => {
@@ -483,33 +555,40 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
     // Include the document archive as well as imported files, including hidden layers.
     events.function('scene.sourcesOf', (handle: FileSystemFileHandle) => {
         const splats = scene.getElementsByType(ElementType.splat) as Splat[];
-        return sourcesOf(splats.flatMap(splat => splat.resource.fileSources).concat(events.invoke('doc.fileSources')), handle);
+        return sourcesOf(
+            splats.flatMap((splat) => splat.resource.fileSources).concat(events.invoke('doc.fileSources')),
+            handle
+        );
     });
 
     // Shared by document and splat writes. The document may exclude
     // its own archive source because an in-place save rebinds it afterwards.
-    events.function('scene.pickWriteTarget', async (
-        location: FileSystemDirectoryHandle,
-        filename: string,
-        confirm: (handle: FileSystemFileHandle) => Promise<boolean>,
-        exclude?: BlobReadSource
-    ) => {
-        const target = await pickWriteTarget(location, filename);
-        if (target.exists) {
-            const sources = (await events.invoke('scene.sourcesOf', target.handle) as BlobReadSource[])
-            .filter(source => source !== exclude);
-            if (sources.length > 0) {
-                await events.invoke('showPopup', {
-                    type: 'error',
-                    header: i18n.t('popup.error'),
-                    message: i18n.t('popup.overwrite-source')
-                });
-                return null;
+    events.function(
+        'scene.pickWriteTarget',
+        async (
+            location: FileSystemDirectoryHandle,
+            filename: string,
+            confirm: (handle: FileSystemFileHandle) => Promise<boolean>,
+            exclude?: BlobReadSource
+        ) => {
+            const target = await pickWriteTarget(location, filename);
+            if (target.exists) {
+                const sources = ((await events.invoke('scene.sourcesOf', target.handle)) as BlobReadSource[]).filter(
+                    (source) => source !== exclude
+                );
+                if (sources.length > 0) {
+                    await events.invoke('showPopup', {
+                        type: 'error',
+                        header: i18n.t('popup.error'),
+                        message: i18n.t('popup.overwrite-source')
+                    });
+                    return null;
+                }
+                if (!(await confirm(target.handle))) return null;
             }
-            if (!await confirm(target.handle)) return null;
+            return target;
         }
-        return target;
-    });
+    );
 
     events.function('scene.import', async () => {
         if (fileSelector) {
@@ -544,7 +623,6 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
                 }
 
                 importFiles(files);
-
             } catch (error) {
                 if (error.name !== 'AbortError') {
                     console.error(error);
@@ -554,9 +632,10 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
     });
 
     let exportingModel = false;
-    events.function('model.canExport', () => !exportingModel && events.invoke('selection') instanceof GltfModel);
+    const selectedElement = () => events.invoke('selection') as Element | undefined;
+    events.function('model.canExport', () => !exportingModel && selectedElement() instanceof GltfModel);
     events.function('model.export', async () => {
-        const model = events.invoke('selection');
+        const model = selectedElement();
         if (exportingModel || !(model instanceof GltfModel) || !model.entity) {
             return;
         }
@@ -565,13 +644,18 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         let stream: FileSystemWritableFileStream;
         let spinning = false;
         try {
-            const filename = `${model.filename.replace(/\.[^.]+$/, '').split(/[\\/]/).pop()}_edited.glb`;
+            const filename = `${model.filename
+                .replace(/\.[^.]+$/, '')
+                .split(/[\\/]/)
+                .pop()}_edited.glb`;
             // Open the picker while the menu click still has user activation.
-            const handle = window.showSaveFilePicker ? await window.showSaveFilePicker({
-                id: 'SuperSplatModelExport',
-                suggestedName: filename,
-                types: [{ description: 'GLB 3D Model', accept: { 'model/gltf-binary': ['.glb'] } }]
-            }) : null;
+            const handle = window.showSaveFilePicker
+                ? await window.showSaveFilePicker({
+                      id: 'SuperSplatModelExport',
+                      suggestedName: filename,
+                      types: [{ description: 'GLB 3D Model', accept: { 'model/gltf-binary': ['.glb'] } }]
+                  })
+                : null;
 
             events.fire('startSpinner');
             spinning = true;
@@ -587,13 +671,13 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
             const writer = await new BrowserFileSystem(filename, stream).createWriter(filename);
             await writer.write(new Uint8Array(contents));
             await writer.close();
-        } catch (error: any) {
+        } catch (error: unknown) {
             try {
                 await stream?.abort();
             } catch {
                 // The writer may already be closed.
             }
-            if (error.name !== 'AbortError') {
+            if (!(error instanceof Error) || error.name !== 'AbortError') {
                 await events.invoke('showPopup', {
                     type: 'error',
                     header: i18n.t('popup.error'),
@@ -612,8 +696,10 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
     events.function('scene.importRecent', async (entry: RecentImport) => {
         try {
             for (const handle of entry.handles) {
-                if (await handle.queryPermission({ mode: 'read' }) !== 'granted' &&
-                    await handle.requestPermission({ mode: 'read' }) !== 'granted') {
+                if (
+                    (await handle.queryPermission({ mode: 'read' })) !== 'granted' &&
+                    (await handle.requestPermission({ mode: 'read' })) !== 'granted'
+                ) {
                     return;
                 }
             }
@@ -663,15 +749,18 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
     });
 
     let exportSettings: ExportSettings = {};
-    const exportSettingsReady = loadExportSettings().then((settings) => {
-        exportSettings = settings;
-    }).catch((error) => {
-        console.warn('Export settings could not be restored', error);
-    });
+    const exportSettingsReady = loadExportSettings()
+        .then((settings) => {
+            exportSettings = settings;
+        })
+        .catch((error) => {
+            console.warn('Export settings could not be restored', error);
+        });
 
-    const persistExportSettings = () => saveExportSettings(exportSettings).catch((error) => {
-        console.warn('Export settings could not be saved', error);
-    });
+    const persistExportSettings = () =>
+        saveExportSettings(exportSettings).catch((error) => {
+            console.warn('Export settings could not be saved', error);
+        });
 
     events.function('scene.pickExportDirectory', async (reuse = false) => {
         await exportSettingsReady;
@@ -725,7 +814,7 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         return directory;
     });
 
-    const showExportError = async (error: any) => {
+    const showExportError = async (error: Error) => {
         if (error.name !== 'AbortError') {
             console.error(error);
             await events.invoke('showPopup', {
@@ -742,19 +831,33 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         const options = buildExportOptions(events, exportType, choices);
 
         const fileType: FileType =
-            (exportType === 'viewer') ? (options.viewerExportSettings!.type === 'zip' ? 'packageViewer' : 'htmlViewer') :
-                (exportType === 'ply') ? (options.compressedPly ? 'compressedPly' : 'ply') :
-                    (exportType === 'sog') ? 'sog' :
-                        (exportType === 'spz') ? 'spz' : 'splat';
+            exportType === 'viewer'
+                ? options.viewerExportSettings!.type === 'zip'
+                    ? 'packageViewer'
+                    : 'htmlViewer'
+                : exportType === 'ply'
+                  ? options.compressedPly
+                      ? 'compressedPly'
+                      : 'ply'
+                  : exportType === 'sog'
+                    ? 'sog'
+                    : exportType === 'spz'
+                      ? 'spz'
+                      : 'splat';
 
         if (!fileTarget) {
-            return await events.invoke('scene.write', fileType, options) as boolean;
+            return (await events.invoke('scene.write', fileType, options)) as boolean;
         }
 
         let written = false;
         try {
             try {
-                written = await events.invoke('scene.write', fileType, options, await fileTarget.handle.createWritable());
+                written = await events.invoke(
+                    'scene.write',
+                    fileType,
+                    options,
+                    await fileTarget.handle.createWritable()
+                );
             } finally {
                 if (!written) await fileTarget.discard?.();
             }
@@ -765,7 +868,7 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
     };
 
     // the last successful export, so it can be repeated with the same choices
-    let lastExport: { exportType: ExportType, choices: ExportChoices, directory?: FileSystemDirectoryHandle } = null;
+    let lastExport: { exportType: ExportType; choices: ExportChoices; directory?: FileSystemDirectoryHandle } = null;
 
     const setLastExport = (value: typeof lastExport) => {
         lastExport = value;
@@ -790,7 +893,12 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
             await exportSettingsReady;
             const directory = hasFilePicker ? await events.invoke('scene.getExportDirectory') : undefined;
 
-            const result = await events.invoke('show.exportPopup', exportType, splats.map(s => s.name), { directory }) as ExportDialogResult;
+            const result = (await events.invoke(
+                'show.exportPopup',
+                exportType,
+                splats.map((s) => s.name),
+                { directory }
+            )) as ExportDialogResult;
 
             // return if user cancelled
             if (!result) {
@@ -815,7 +923,9 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
             const { exportType, choices, directory } = lastExport;
             let fileTarget: WriteTarget;
             if (directory) {
-                fileTarget = await events.invoke('scene.pickWriteTarget', directory, choices.filename, () => Promise.resolve(true));
+                fileTarget = await events.invoke('scene.pickWriteTarget', directory, choices.filename, () =>
+                    Promise.resolve(true)
+                );
                 if (!fileTarget) return;
             }
             await exportScene(exportType, choices, fileTarget);
@@ -826,91 +936,112 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         }
     });
 
-    events.function('scene.write', async (fileType: FileType, options: SceneExportOptions, stream?: FileSystemWritableFileStream) => {
-        // SOG, SPZ and viewer exports have their own progress UI, other formats use spinner
-        const useSpinner = fileType !== 'sog' && fileType !== 'spz' && fileType !== 'htmlViewer' && fileType !== 'packageViewer';
+    events.function(
+        'scene.write',
+        async (
+            fileType: FileType,
+            options: SceneExportOptions,
+            stream?: FileSystemWritableFileStream,
+            operation?: FileOperationOptions
+        ) => {
+            // SOG, SPZ and viewer exports have their own progress UI, other formats use spinner
+            const useSpinner =
+                fileType !== 'sog' && fileType !== 'spz' && fileType !== 'htmlViewer' && fileType !== 'packageViewer';
 
-        if (useSpinner) {
-            events.fire('startSpinner');
-        }
-
-        try {
-            // setTimeout so spinner/progress has a chance to activate
-            await new Promise<void>((resolve) => {
-                setTimeout(resolve);
-            });
-
-            const { filename, splatIdx, serializeSettings, viewerExportSettings } = options;
-
-            // Create FileSystem for output
-            const fs = new BrowserFileSystem(filename, stream);
-
-            const splats = splatIdx === 'all' ? getSplats() : [getSplats()[splatIdx]];
-
-            switch (fileType) {
-                case 'ply':
-                    await writeSplatFile(splats, serializeSettings, 'ply', 'output.ply', {}, fs);
-                    break;
-                case 'compressedPly':
-                    serializeSettings.minOpacity = 1 / 255;
-                    serializeSettings.removeInvalid = true;
-                    await writeSplatFile(splats, serializeSettings, 'compressed-ply', 'output.compressed.ply', {}, fs);
-                    break;
-                case 'splat':
-                    await writeSplatFile(splats, serializeSettings, 'splat', 'output.splat', {}, fs);
-                    break;
-                case 'sog': {
-                    const sogSettings: SogSettings = {
-                        ...serializeSettings,
-                        minOpacity: 1 / 255,
-                        removeInvalid: true,
-                        iterations: options.sogIterations ?? 10,
-                        events
-                    };
-                    await serializeSog(splats, sogSettings, fs);
-                    break;
-                }
-                case 'spz': {
-                    const spzSettings: SpzSettings = {
-                        ...serializeSettings,
-                        minOpacity: 1 / 255,
-                        removeInvalid: true,
-                        version: options.spzVersion ?? 4,
-                        events
-                    };
-                    await serializeSpz(splats, spzSettings, fs);
-                    break;
-                }
-                case 'htmlViewer':
-                case 'packageViewer':
-                    await serializeViewer(splats, serializeSettings, { ...viewerExportSettings!, events }, fs);
-                    break;
-            }
-            return true;
-        } catch (error) {
-            // Release the writable stream before a newly created target is removed.
-            await stream?.abort().catch(() => { /* the writer may already have aborted */ });
-            if (error instanceof WebGPUUnavailableError) {
-                await events.invoke('showPopup', {
-                    type: 'error',
-                    header: i18n.t('popup.error'),
-                    message: i18n.t('popup.webgpu-unavailable')
-                });
-            } else {
-                const message = error instanceof Error ? error.message : String(error);
-                await events.invoke('showPopup', {
-                    type: 'error',
-                    header: i18n.t('popup.error'),
-                    message: `${message} while saving file`
-                });
-            }
-            return false;
-        } finally {
             if (useSpinner) {
-                events.fire('stopSpinner');
+                events.fire('startSpinner');
+            }
+
+            try {
+                // setTimeout so spinner/progress has a chance to activate
+                await new Promise<void>((resolve) => {
+                    setTimeout(resolve);
+                });
+
+                const { filename, splatIdx, serializeSettings, viewerExportSettings } = options;
+
+                // Create FileSystem for output
+                const fs = new BrowserFileSystem(filename, stream, operation?.signal);
+
+                checkCancelled(operation);
+                const splats = operation?.splats ?? (splatIdx === 'all' ? getSplats() : [getSplats()[splatIdx]]);
+
+                switch (fileType) {
+                    case 'ply':
+                        await writeSplatFile(splats, serializeSettings, 'ply', 'output.ply', {}, fs);
+                        break;
+                    case 'compressedPly':
+                        serializeSettings.minOpacity = 1 / 255;
+                        serializeSettings.removeInvalid = true;
+                        await writeSplatFile(
+                            splats,
+                            serializeSettings,
+                            'compressed-ply',
+                            'output.compressed.ply',
+                            {},
+                            fs
+                        );
+                        break;
+                    case 'splat':
+                        await writeSplatFile(splats, serializeSettings, 'splat', 'output.splat', {}, fs);
+                        break;
+                    case 'sog': {
+                        const sogSettings: SogSettings = {
+                            ...serializeSettings,
+                            minOpacity: 1 / 255,
+                            removeInvalid: true,
+                            iterations: options.sogIterations ?? 10,
+                            events
+                        };
+                        await serializeSog(splats, sogSettings, fs);
+                        break;
+                    }
+                    case 'spz': {
+                        const spzSettings: SpzSettings = {
+                            ...serializeSettings,
+                            minOpacity: 1 / 255,
+                            removeInvalid: true,
+                            version: options.spzVersion ?? 4,
+                            events
+                        };
+                        await serializeSpz(splats, spzSettings, fs);
+                        break;
+                    }
+                    case 'htmlViewer':
+                    case 'packageViewer':
+                        await serializeViewer(splats, serializeSettings, { ...viewerExportSettings!, events }, fs);
+                        break;
+                }
+                return true;
+            } catch (error) {
+                // Release the writable stream before a newly created target is removed.
+                await stream?.abort().catch(() => {
+                    /* the writer may already have aborted */
+                });
+                if (operation?.throwOnError) throw error;
+                if (error instanceof WebGPUUnavailableError) {
+                    await events.invoke('showPopup', {
+                        type: 'error',
+                        header: i18n.t('popup.error'),
+                        message: i18n.t('popup.webgpu-unavailable')
+                    });
+                } else {
+                    const message = error instanceof Error ? error.message : String(error);
+                    await events.invoke('showPopup', {
+                        type: 'error',
+                        header: i18n.t('popup.error'),
+                        message: `${message} while saving file`
+                    });
+                }
+                return false;
+            } finally {
+                if (useSpinner) {
+                    events.fire('stopSpinner');
+                }
             }
         }
-    });
+    );
 };
 
 export { initFileHandler };
+export type { FileType, FileOperationOptions };

@@ -3,11 +3,12 @@ import { Mat4, Quat, Vec3 } from 'playcanvas';
 
 import { EntityTransformOp, MultiOp, PlacePivotOp } from '../edit-ops';
 import { ElementType } from '../element';
-import { Events } from '../events';
-import { Pivot } from '../pivot';
-import { Scene } from '../scene';
-import { Splat } from '../splat';
-import { ToolOverlay, OverlayWriter } from '../tool-overlay';
+import type { Events } from '../events';
+import type { Pivot } from '../pivot';
+import type { Scene } from '../scene';
+import type { Splat } from '../splat';
+import type { OverlayWriter } from '../tool-overlay';
+import { ToolOverlay } from '../tool-overlay';
 import { Transform } from '../transform';
 import { i18n } from '../ui/localization';
 
@@ -57,19 +58,14 @@ const buildFrame = (points: readonly Vec3[], result: Mat4) => {
 
     // Keep a right-handed frame. The frame columns are x, y, z.
     const y = new Vec3().cross(z, x).normalize();
-    result.set([
-        x.x, x.y, x.z, 0,
-        y.x, y.y, y.z, 0,
-        z.x, z.y, z.z, 0,
-        0, 0, 0, 1
-    ]);
+    result.set([x.x, x.y, x.z, 0, y.x, y.y, y.z, 0, z.x, z.y, z.z, 0, 0, 0, 0, 1]);
 
     return true;
 };
 
 const centroid = (points: readonly Vec3[], result: Vec3) => {
     result.set(0, 0, 0);
-    points.forEach(point => result.add(point));
+    points.forEach((point) => result.add(point));
     result.mulScalar(1 / points.length);
 };
 
@@ -113,7 +109,7 @@ const calculateAlignmentRotation = (
             return false;
         }
 
-        result.setFromAxisAngle(Vec3.UP, Math.atan2(cross, dot) * 180 / Math.PI);
+        result.setFromAxisAngle(Vec3.UP, (Math.atan2(cross, dot) * 180) / Math.PI);
         return true;
     }
 
@@ -153,22 +149,23 @@ const calculateLayerAlignment = (
     const position = new Vec3().sub2(currentPosition, sourceCenter);
     rotationDelta.transformVector(position, position).add(targetCenter);
 
-    return new Transform(
-        position,
-        new Quat().mul2(rotationDelta, currentRotation),
-        currentScale
-    );
+    return new Transform(position, new Quat().mul2(rotationDelta, currentRotation), currentScale);
 };
 
 class LayerAlignTransformHandler {
-    activate() {}
-    deactivate() {}
+    activate() {
+        // Pivot binding stays on the active splat handler.
+    }
+
+    deactivate() {
+        // The tool pops this handler itself.
+    }
 }
 
 class LayerAlignTool {
     activate: () => void;
     deactivate: () => void;
-    getFocus: () => { position: Vec3, radius: number } | null;
+    getFocus: () => { position: Vec3; radius: number } | null;
 
     constructor(events: Events, scene: Scene, parent: HTMLElement, canvasContainer: Container) {
         const hintLabel = new Label({ class: 'select-toolbar-label' });
@@ -207,7 +204,7 @@ class LayerAlignTool {
             class: ['select-toolbar', 'select-toolbar-tool', 'layer-align-toolbar'],
             hidden: true
         });
-        selectToolbar.dom.addEventListener('pointerdown', e => e.stopPropagation());
+        selectToolbar.dom.addEventListener('pointerdown', (e) => e.stopPropagation());
 
         const layerRow = new Container({ class: 'layer-align-row' });
         layerRow.append(baseLabel);
@@ -247,13 +244,14 @@ class LayerAlignTool {
         const getSplats = () => scene.getElementsByType(ElementType.splat) as Splat[];
         const getSplat = (select: SelectInput) => {
             const uid = Number(select.value);
-            return Number.isFinite(uid) ? getSplats().find(splat => splat.uid === uid) ?? null : null;
+            return Number.isFinite(uid) ? (getSplats().find((splat) => splat.uid === uid) ?? null) : null;
         };
 
-        const buildLayerOptions = () => getSplats().map((splat, index) => ({
-            v: splat.uid,
-            t: `${index + 1}: ${splat.name}`
-        }));
+        const buildLayerOptions = () =>
+            getSplats().map((splat, index) => ({
+                v: splat.uid,
+                t: `${index + 1}: ${splat.name}`
+            }));
 
         const resetPoints = () => {
             basePoints = [];
@@ -268,13 +266,18 @@ class LayerAlignTool {
         const getAlignmentPoints = () => {
             const base = getSplat(baseLayer);
             const moving = getSplat(movingLayer);
-            if (!base || !moving || base === moving ||
-                basePoints.length !== POINT_COUNT || movingPoints.length !== POINT_COUNT) {
+            if (
+                !base ||
+                !moving ||
+                base === moving ||
+                basePoints.length !== POINT_COUNT ||
+                movingPoints.length !== POINT_COUNT
+            ) {
                 return null;
             }
 
-            const source = movingPoints.map(point => getWorldPoint(moving, point, new Vec3()));
-            const target = basePoints.map(point => getWorldPoint(base, point, new Vec3()));
+            const source = movingPoints.map((point) => getWorldPoint(moving, point, new Vec3()));
+            const target = basePoints.map((point) => getWorldPoint(base, point, new Vec3()));
             return { base, moving, source, target };
         };
 
@@ -325,17 +328,23 @@ class LayerAlignTool {
             const base = getSplat(baseLayer);
             const moving = getSplat(movingLayer);
             const points = phase === 'base' ? basePoints : movingPoints;
-            const ready = base && moving && base !== moving &&
-                basePoints.length === POINT_COUNT && movingPoints.length === POINT_COUNT;
+            const ready =
+                base &&
+                moving &&
+                base !== moving &&
+                basePoints.length === POINT_COUNT &&
+                movingPoints.length === POINT_COUNT;
             const alignmentPoints = ready ? getAlignmentPoints() : null;
-            const alignment = alignmentPoints ? calculateLayerAlignment(
-                alignmentPoints.source,
-                alignmentPoints.target,
-                moving.entity.getLocalPosition(),
-                moving.entity.getLocalRotation(),
-                moving.entity.getLocalScale(),
-                modeSelect.value as LayerAlignmentMode
-            ) : null;
+            const alignment = alignmentPoints
+                ? calculateLayerAlignment(
+                      alignmentPoints.source,
+                      alignmentPoints.target,
+                      moving.entity.getLocalPosition(),
+                      moving.entity.getLocalRotation(),
+                      moving.entity.getLocalScale(),
+                      modeSelect.value as LayerAlignmentMode
+                  )
+                : null;
 
             basePick.text = `${i18n.t('layer-align.pick-base')} (${basePoints.length}/${POINT_COUNT})`;
             movingPick.text = `${i18n.t('layer-align.pick-moving')} (${movingPoints.length}/${POINT_COUNT})`;
@@ -371,10 +380,12 @@ class LayerAlignTool {
             baseLayer.options = options;
             movingLayer.options = options;
 
-            const has = (uid: number) => Number.isFinite(uid) && splats.some(splat => splat.uid === uid);
+            const has = (uid: number) => Number.isFinite(uid) && splats.some((splat) => splat.uid === uid);
             const nextBaseUid = has(oldBaseUid) ? oldBaseUid : (splats[0]?.uid ?? null);
-            const nextMovingUid = has(oldMovingUid) && oldMovingUid !== nextBaseUid ? oldMovingUid :
-                (splats.find(splat => splat.uid !== nextBaseUid)?.uid ?? null);
+            const nextMovingUid =
+                has(oldMovingUid) && oldMovingUid !== nextBaseUid
+                    ? oldMovingUid
+                    : (splats.find((splat) => splat.uid !== nextBaseUid)?.uid ?? null);
 
             baseUid = nextBaseUid;
             movingUid = nextMovingUid;
@@ -403,7 +414,7 @@ class LayerAlignTool {
             if (which === 'base') {
                 baseUid = Number.isFinite(uid) ? uid : null;
                 if (baseUid !== null && baseUid === movingUid) {
-                    const alternative = getSplats().find(splat => splat.uid !== baseUid);
+                    const alternative = getSplats().find((splat) => splat.uid !== baseUid);
                     movingUid = alternative?.uid ?? null;
                     if (movingUid !== null) {
                         suppressLayerChange = true;
@@ -414,7 +425,7 @@ class LayerAlignTool {
             } else {
                 movingUid = Number.isFinite(uid) ? uid : null;
                 if (movingUid !== null && movingUid === baseUid) {
-                    const alternative = getSplats().find(splat => splat.uid !== movingUid);
+                    const alternative = getSplats().find((splat) => splat.uid !== movingUid);
                     baseUid = alternative?.uid ?? null;
                     if (baseUid !== null) {
                         suppressLayerChange = true;
@@ -455,7 +466,13 @@ class LayerAlignTool {
         const align = () => {
             const base = getSplat(baseLayer);
             const moving = getSplat(movingLayer);
-            if (!base || !moving || base === moving || basePoints.length !== POINT_COUNT || movingPoints.length !== POINT_COUNT) {
+            if (
+                !base ||
+                !moving ||
+                base === moving ||
+                basePoints.length !== POINT_COUNT ||
+                movingPoints.length !== POINT_COUNT
+            ) {
                 return;
             }
 
@@ -491,14 +508,17 @@ class LayerAlignTool {
             // their existing pivot unchanged.
             if (events.invoke('selection') === moving) {
                 const pivot = events.invoke('pivot') as Pivot;
-                ops.push(new PlacePivotOp({
-                    pivot,
-                    oldt: pivot.transform.clone(),
-                    newt: pivotTransformFor(moving, newt)
-                }));
+                ops.push(
+                    new PlacePivotOp({
+                        pivot,
+                        oldt: pivot.transform.clone(),
+                        newt: pivotTransformFor(moving, newt)
+                    })
+                );
             }
 
             events.fire('edit.add', ops.length === 1 ? ops[0] : new MultiOp(ops));
+            events.fire('selection', moving);
             scene.forceRender = true;
         };
         applyButton.on('click', align);
@@ -572,13 +592,6 @@ class LayerAlignTool {
             }
         });
         events.on('splat.name', updateLayerOptions);
-        const restoreTransformHandler = () => {
-            if (active) {
-                events.fire('transformHandler.push', transformHandler);
-            }
-        };
-        events.on('selection.changed', restoreTransformHandler);
-        events.on('splat.stateChanged', restoreTransformHandler);
 
         i18n.onChange(updateControls, selectToolbar);
         updateLayerOptions();
@@ -588,17 +601,17 @@ class LayerAlignTool {
             const base = getSplat(baseLayer);
             const moving = getSplat(movingLayer);
             if (base) {
-                basePoints.forEach(point => points.push(getWorldPoint(base, point, new Vec3())));
+                basePoints.forEach((point) => points.push(getWorldPoint(base, point, new Vec3())));
             }
             if (moving) {
-                movingPoints.forEach(point => points.push(getWorldPoint(moving, point, new Vec3())));
+                movingPoints.forEach((point) => points.push(getWorldPoint(moving, point, new Vec3())));
             }
             if (points.length === 0) {
                 return null;
             }
 
             const position = new Vec3();
-            points.forEach(point => position.add(point));
+            points.forEach((point) => position.add(point));
             position.mulScalar(1 / points.length);
 
             let radius = 0;
@@ -607,11 +620,15 @@ class LayerAlignTool {
             });
             const bounds = [base, moving].filter((splat, index, all) => splat && all.indexOf(splat) === index);
             const boundRadius = bounds.reduce((max, splat) => {
-                return Math.max(max, splat.localBound.halfExtents.length() * Math.max(
-                    Math.abs(splat.entity.getLocalScale().x),
-                    Math.abs(splat.entity.getLocalScale().y),
-                    Math.abs(splat.entity.getLocalScale().z)
-                ));
+                return Math.max(
+                    max,
+                    splat.localBound.halfExtents.length() *
+                        Math.max(
+                            Math.abs(splat.entity.getLocalScale().x),
+                            Math.abs(splat.entity.getLocalScale().y),
+                            Math.abs(splat.entity.getLocalScale().z)
+                        )
+                );
             }, 0);
             return { position, radius: Math.max(radius * 1.5, boundRadius * 0.05) };
         };
@@ -640,7 +657,7 @@ class LayerAlignTool {
             selectToolbar.hidden = true;
             parent.style.display = 'none';
             parent.classList.remove('noevents');
-            events.fire('transformHandler.pop');
+            events.fire('transformHandler.pop', transformHandler);
             scene.forceRender = true;
         };
     }

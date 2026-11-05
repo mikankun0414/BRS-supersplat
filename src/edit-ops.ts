@@ -1,17 +1,20 @@
-import { Color, Mat4, Mesh, Quat, Vec3 } from 'playcanvas';
+import { Mat4 } from 'playcanvas';
+import type { Mesh, Quat, Vec3 } from 'playcanvas';
 
-import { AnimTrack } from './anim-track';
+import type { AnimTrack } from './anim-track';
 import { BoxShape } from './box-shape';
-import { composeGrades, createGradeTerms, type GradeTerms } from './color-grade';
-import { GaussianInstances, type RemovedInstances } from './gaussian-instances';
+import { composeGrades, createGradeTerms } from './color-grade';
+import type { GradeTerms } from './color-grade';
+import { GaussianInstances } from './gaussian-instances';
+import type { RemovedInstances } from './gaussian-instances';
 import { IndexRanges, sortedPredicate } from './index-ranges';
 import type { GltfModel } from './model';
-import { Pivot } from './pivot';
-import { Scene } from './scene';
+import type { Pivot } from './pivot';
+import type { Scene } from './scene';
 import { SphereShape } from './sphere-shape';
-import { Splat } from './splat';
+import type { Splat } from './splat';
 import { State } from './splat-state';
-import { Transform } from './transform';
+import type { Transform } from './transform';
 
 interface EditOp {
     name: string;
@@ -62,8 +65,7 @@ class StateOp {
     }
 
     async undo() {
-        const undoOp = this.op === BitOp.TOGGLE ? BitOp.TOGGLE :
-            this.op === BitOp.SET ? BitOp.CLEAR : BitOp.SET;
+        const undoOp = this.op === BitOp.TOGGLE ? BitOp.TOGGLE : this.op === BitOp.SET ? BitOp.CLEAR : BitOp.SET;
         this.apply(undoOp);
         await this.splat.updateState();
     }
@@ -80,7 +82,12 @@ class SelectAllOp extends StateOp {
     constructor(splat: Splat) {
         const state = splat.instances.flags;
         const count = splat.instances.count;
-        super(splat, IndexRanges.fromPredicate(count, i => state[i] === 0), State.selected, BitOp.SET);
+        super(
+            splat,
+            IndexRanges.fromPredicate(count, (i) => state[i] === 0),
+            State.selected,
+            BitOp.SET
+        );
     }
 }
 
@@ -90,7 +97,12 @@ class SelectNoneOp extends StateOp {
     constructor(splat: Splat) {
         const state = splat.instances.flags;
         const count = splat.instances.count;
-        super(splat, IndexRanges.fromPredicate(count, i => state[i] === State.selected), State.selected, BitOp.CLEAR);
+        super(
+            splat,
+            IndexRanges.fromPredicate(count, (i) => state[i] === State.selected),
+            State.selected,
+            BitOp.CLEAR
+        );
     }
 }
 
@@ -100,7 +112,12 @@ class SelectInvertOp extends StateOp {
     constructor(splat: Splat) {
         const state = splat.instances.flags;
         const count = splat.instances.count;
-        super(splat, IndexRanges.fromPredicate(count, i => (state[i] & State.locked) === 0), State.selected, BitOp.TOGGLE);
+        super(
+            splat,
+            IndexRanges.fromPredicate(count, (i) => (state[i] & State.locked) === 0),
+            State.selected,
+            BitOp.TOGGLE
+        );
     }
 }
 
@@ -142,7 +159,7 @@ class SelectOp extends StateOp {
         const preds = {
             add: (i: number) => valid(i) && isHit(i) && state[i] === 0,
             remove: (i: number) => valid(i) && isHit(i) && state[i] === State.selected,
-            set: (i: number) => valid(i) && ((state[i] === State.selected) !== isHit(i)),
+            set: (i: number) => valid(i) && (state[i] === State.selected) !== isHit(i),
             intersect: (i: number) => valid(i) && state[i] === State.selected && !isHit(i)
         };
 
@@ -156,7 +173,12 @@ class HideSelectionOp extends StateOp {
     constructor(splat: Splat) {
         const state = splat.instances.flags;
         const count = splat.instances.count;
-        super(splat, IndexRanges.fromPredicate(count, i => state[i] === State.selected), State.locked, BitOp.SET);
+        super(
+            splat,
+            IndexRanges.fromPredicate(count, (i) => state[i] === State.selected),
+            State.locked,
+            BitOp.SET
+        );
     }
 }
 
@@ -166,7 +188,12 @@ class UnhideAllOp extends StateOp {
     constructor(splat: Splat) {
         const state = splat.instances.flags;
         const count = splat.instances.count;
-        super(splat, IndexRanges.fromPredicate(count, i => (state[i] & State.locked) !== 0), State.locked, BitOp.CLEAR);
+        super(
+            splat,
+            IndexRanges.fromPredicate(count, (i) => (state[i] & State.locked) !== 0),
+            State.locked,
+            BitOp.CLEAR
+        );
     }
 }
 
@@ -181,7 +208,7 @@ class UnhideAllOp extends StateOp {
 // would let the two drift apart and silently duplicate or drop instances.
 const selectedRanges = (splat: Splat) => {
     const flags = splat.instances.flags;
-    return IndexRanges.fromPredicate(splat.instances.count, i => flags[i] === State.selected);
+    return IndexRanges.fromPredicate(splat.instances.count, (i) => flags[i] === State.selected);
 };
 
 class RemoveInstancesOp {
@@ -247,7 +274,7 @@ class EntityTransformOp {
     oldt: Transform;
     newt: Transform;
 
-    constructor(options: { splat: Splat | GltfModel, oldt: Transform, newt: Transform }) {
+    constructor(options: { splat: Splat | GltfModel; oldt: Transform; newt: Transform }) {
         this.splat = options.splat;
         this.oldt = options.oldt;
         this.newt = options.newt;
@@ -287,7 +314,7 @@ class MeshEditOp {
     splat: GltfModel;
     changes: MeshEditChange[];
 
-    constructor(options: { model: GltfModel, changes: MeshEditChange[] }) {
+    constructor(options: { model: GltfModel; changes: MeshEditChange[] }) {
         this.splat = options.model;
         this.changes = options.changes;
     }
@@ -335,7 +362,7 @@ class SplatsTransformOp {
     transform: Mat4;
     paletteMap: Map<number, number>;
 
-    constructor(options: { splat: Splat, transform: Mat4, paletteMap: Map<number, number> }) {
+    constructor(options: { splat: Splat; transform: Mat4; paletteMap: Map<number, number> }) {
         this.splat = options.splat;
         this.transform = options.transform;
         this.paletteMap = options.paletteMap;
@@ -415,13 +442,15 @@ class SplatsColorOp {
     // the block undo freed.
     private oldIndices: number[];
     private paletteMap: Map<number, number>;
+    private scope: 'selection' | 'layer';
 
-    constructor(options: { splat: Splat, grade: GradeTerms | null }) {
+    constructor(options: { splat: Splat; grade: GradeTerms | null; scope?: 'selection' | 'layer' }) {
         this.splat = options.splat;
         this.grade = options.grade;
+        this.scope = options.scope ?? (options.splat.instances.numSelected === 0 ? 'layer' : 'selection');
 
         const seen = new Set<number>();
-        this.forEachTarget(i => seen.add(options.splat.instances.colorIndex(i)));
+        this.forEachTarget((i) => seen.add(options.splat.instances.colorIndex(i)));
         this.oldIndices = [...seen];
     }
 
@@ -433,7 +462,7 @@ class SplatsColorOp {
     private forEachTarget(fn: (i: number) => void) {
         const { instances } = this.splat;
         const { flags } = instances;
-        const all = instances.numSelected === 0;
+        const all = this.scope === 'layer';
         for (let i = 0; i < instances.count; ++i) {
             const f = flags[i];
             if ((f & State.locked) === 0 && (all || (f & State.selected) !== 0)) {
@@ -500,7 +529,7 @@ class PlacePivotOp {
     oldt: Transform;
     newt: Transform;
 
-    constructor(options: { pivot: Pivot, oldt: Transform, newt: Transform }) {
+    constructor(options: { pivot: Pivot; oldt: Transform; newt: Transform }) {
         this.pivot = options.pivot;
         this.oldt = options.oldt;
         this.newt = options.newt;
@@ -525,7 +554,7 @@ class SetLocalFrameOp {
     newOrigin: Vec3;
     newFrame: Quat;
 
-    constructor(options: { splat: Splat, oldOrigin: Vec3, oldFrame: Quat, newOrigin: Vec3, newFrame: Quat }) {
+    constructor(options: { splat: Splat; oldOrigin: Vec3; oldFrame: Quat; newOrigin: Vec3; newFrame: Quat }) {
         this.splat = options.splat;
         this.oldOrigin = options.oldOrigin;
         this.oldFrame = options.oldFrame;
@@ -553,8 +582,8 @@ class SetLocalFrameOp {
 type ShapeTransformState = {
     position: Vec3;
     rotation?: Quat;
-    lens?: Vec3;        // box lengths
-    radius?: number;    // sphere radius
+    lens?: Vec3; // box lengths
+    radius?: number; // sphere radius
 };
 
 // moves/rotates/resizes a box/sphere selection volume
@@ -564,7 +593,11 @@ class ShapeTransformOp {
     oldState: ShapeTransformState;
     newState: ShapeTransformState;
 
-    constructor(options: { shape: BoxShape | SphereShape, oldState: ShapeTransformState, newState: ShapeTransformState }) {
+    constructor(options: {
+        shape: BoxShape | SphereShape;
+        oldState: ShapeTransformState;
+        newState: ShapeTransformState;
+    }) {
         this.shape = options.shape;
         this.oldState = options.oldState;
         this.newState = options.newState;
@@ -695,10 +728,24 @@ class SplatRenameOp {
 
 const isIdentityMat = (m: Mat4, eps = 1e-5) => {
     const d = m.data;
-    return Math.abs(d[0] - 1) < eps && Math.abs(d[1]) < eps && Math.abs(d[2]) < eps && Math.abs(d[3]) < eps &&
-           Math.abs(d[4]) < eps && Math.abs(d[5] - 1) < eps && Math.abs(d[6]) < eps && Math.abs(d[7]) < eps &&
-           Math.abs(d[8]) < eps && Math.abs(d[9]) < eps && Math.abs(d[10] - 1) < eps && Math.abs(d[11]) < eps &&
-           Math.abs(d[12]) < eps && Math.abs(d[13]) < eps && Math.abs(d[14]) < eps && Math.abs(d[15] - 1) < eps;
+    return (
+        Math.abs(d[0] - 1) < eps &&
+        Math.abs(d[1]) < eps &&
+        Math.abs(d[2]) < eps &&
+        Math.abs(d[3]) < eps &&
+        Math.abs(d[4]) < eps &&
+        Math.abs(d[5] - 1) < eps &&
+        Math.abs(d[6]) < eps &&
+        Math.abs(d[7]) < eps &&
+        Math.abs(d[8]) < eps &&
+        Math.abs(d[9]) < eps &&
+        Math.abs(d[10] - 1) < eps &&
+        Math.abs(d[11]) < eps &&
+        Math.abs(d[12]) < eps &&
+        Math.abs(d[13]) < eps &&
+        Math.abs(d[14]) < eps &&
+        Math.abs(d[15] - 1) < eps
+    );
 };
 
 class MergeSplatsOp {
@@ -714,8 +761,8 @@ class MergeSplatsOp {
 
     private numAllocatedTransforms = 0;
     private numAllocatedColors = 0;
-    private allocatedTransforms: Array<{ index: number, mat: Mat4 }> = [];
-    private allocatedColors: Array<{ index: number, terms: GradeTerms }> = [];
+    private allocatedTransforms: { index: number; mat: Mat4 }[] = [];
+    private allocatedColors: { index: number; terms: GradeTerms }[] = [];
 
     constructor(scene: Scene, splat: Splat, sources: Splat[]) {
         this.scene = scene;
@@ -854,7 +901,7 @@ class MergeSplatsOp {
             }
         }
 
-        this.sourceIndices = this.sources.map(source => this.scene.elements.indexOf(source));
+        this.sourceIndices = this.sources.map((source) => this.scene.elements.indexOf(source));
         for (const source of this.sources) {
             this.scene.remove(source);
         }
@@ -903,11 +950,11 @@ class MergeSplatsOp {
                 this.mergedInstances.destroy();
             }
         }
-        this.scene = null as any;
-        this.splat = null as any;
+        this.scene = null;
+        this.splat = null;
         this.sources = [];
         this.sourceIndices = [];
-        this.originalInstances = null as any;
+        this.originalInstances = null;
         this.mergedInstances = null;
         this.allocatedTransforms = [];
         this.allocatedColors = [];

@@ -2,13 +2,13 @@ import type { Asset, Quat } from 'playcanvas';
 
 import { decodeInstances, writeInstances, restorePalettes } from './doc-instances';
 import type { EditorSplatResource } from './editor-splat-resource';
-import { Events } from './events';
+import type { Events } from './events';
 import { GaussianInstances } from './gaussian-instances';
 import { BrowserFileSystem, BlobReadSource, loadSplatSource, sourcesOf } from './io';
 import { ZipReadFileSystem } from './io/read/zip-file-system';
 import { ZipFileSystem } from './io/write/zip-file-system';
 import { recentFiles } from './recent-files';
-import { Scene } from './scene';
+import type { Scene } from './scene';
 import { Splat } from './splat';
 import { writeResourceFile } from './splat-serialize';
 import { Transform } from './transform';
@@ -17,12 +17,14 @@ import { i18n } from './ui/localization';
 // ts compiler and vscode find this type, but eslint does not
 type FilePickerAcceptType = unknown;
 
-const SuperFileType: FilePickerAcceptType[] = [{
-    description: 'SuperSplat document',
-    accept: {
-        'application/x-supersplat': ['.ssproj']
+const SuperFileType: FilePickerAcceptType[] = [
+    {
+        description: 'SuperSplat document',
+        accept: {
+            'application/x-supersplat': ['.ssproj']
+        }
     }
-}];
+];
 
 type FileSelectorCallback = (fileList: File) => void;
 
@@ -149,7 +151,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 // brings its own instance list and palettes. Layers sharing a
                 // resource share it here too, so a duplicated layer costs nothing
                 // beyond its list.
-                const assets: { asset: Asset, rotation: Quat }[] = [];
+                const assets: { asset: Asset; rotation: Quat }[] = [];
                 for (const resource of document.resources) {
                     const loaded = await scene.assetLoader.loadAsset(resource.filename, zipFs, false, true);
                     documentResources.add(loaded.asset.resource as EditorSplatResource);
@@ -166,7 +168,11 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                     const records = decodeInstances(blob);
 
                     const instances = GaussianInstances.fromRecords(
-                        scene.app.graphicsDevice, numRows, records.sourceRow, records.flags, records.palette
+                        scene.app.graphicsDevice,
+                        numRows,
+                        records.sourceRow,
+                        records.flags,
+                        records.palette
                     );
                     const splat = new Splat(asset, rotation, instances);
                     restorePalettes(records, splat.transformPalette, splat.colorPalette);
@@ -244,7 +250,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
     // is open from, where the resources are then re-read from what was written
     // (see rebindDocument) and an undo must still find its rows.
     const groupByResource = (splats: Splat[]) => {
-        const groups: { resource: EditorSplatResource, layers: Splat[] }[] = [];
+        const groups: { resource: EditorSplatResource; layers: Splat[] }[] = [];
         const index = new Map<EditorSplatResource, number>();
         for (const splat of splats) {
             let at = index.get(splat.resource);
@@ -259,7 +265,10 @@ const registerDocEvents = (scene: Scene, events: Events) => {
         return groups;
     };
 
-    const resourceRows = ({ resource, layers }: { resource: EditorSplatResource, layers: Splat[] }, compact: boolean) => {
+    const resourceRows = (
+        { resource, layers }: { resource: EditorSplatResource; layers: Splat[] },
+        compact: boolean
+    ) => {
         const referenced = new Uint8Array(resource.numRows);
         if (!compact) referenced.fill(1);
         for (const layer of layers) {
@@ -291,7 +300,11 @@ const registerDocEvents = (scene: Scene, events: Events) => {
 
     // returns the resource groups written, in resource file order, or null if
     // the save failed
-    const saveDocument = async (options: { stream?: FileSystemWritableFileStream, filename?: string, compact?: boolean }) => {
+    const saveDocument = async (options: {
+        stream?: FileSystemWritableFileStream;
+        filename?: string;
+        compact?: boolean;
+    }) => {
         events.fire('startSpinner');
         let zipFs: ZipFileSystem;
 
@@ -300,7 +313,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             const groups = groupByResource(splats);
 
             const layerInfo = new Map<Splat, number>();
-            groups.forEach((group, index) => group.layers.forEach(layer => layerInfo.set(layer, index)));
+            groups.forEach((group, index) => group.layers.forEach((layer) => layerInfo.set(layer, index)));
             const layerIndices = new Map(splats.map((splat, index) => [splat, index]));
             const savedCounts: number[] = [];
             const browserFs = new BrowserFileSystem(options.filename, options.stream);
@@ -347,8 +360,12 @@ const registerDocEvents = (scene: Scene, events: Events) => {
 
             return groups;
         } catch (error) {
-            await zipFs?.abort().catch(() => {});
-            await options.stream?.abort().catch(() => { /* the writer may already have aborted */ });
+            await zipFs?.abort().catch(() => {
+                // The zip writer may already be closed.
+            });
+            await options.stream?.abort().catch(() => {
+                /* the writer may already have aborted */
+            });
             await events.invoke('showPopup', {
                 type: 'error',
                 header: i18n.t('doc.save-failed'),
@@ -375,7 +392,9 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             // Rebinding replaces the backing file of data already resident on
             // the GPU. Keep every row, including undo rows; an import preview
             // subset would change row indices and cannot replace this source.
-            const loaded = await loadSplatSource(`resource_${i}.ply`, zipFs, true, undefined, count => Promise.resolve(count));
+            const loaded = await loadSplatSource(`resource_${i}.ply`, zipFs, true, undefined, (count) =>
+                Promise.resolve(count)
+            );
             await resource.rebind(loaded.source);
             rebound.add(resource);
         }
@@ -401,7 +420,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
 
     // handle user requesting a new document
     events.function('doc.new', async () => {
-        if (!await getResetConfirmation()) {
+        if (!(await getResetConfirmation())) {
             return false;
         }
         resetScene();
@@ -416,11 +435,11 @@ const registerDocEvents = (scene: Scene, events: Events) => {
     // (which would result in more seamless user experience), but this is not yet supported in
     // other browsers.
     events.function('doc.load', async (file: File, handle?: FileSystemFileHandle) => {
-        if (!events.invoke('scene.empty') && !await getResetConfirmation()) {
+        if (!events.invoke('scene.empty') && !(await getResetConfirmation())) {
             return false;
         }
 
-        if (!await loadDocument(file, handle)) return false;
+        if (!(await loadDocument(file, handle))) return false;
 
         events.fire('doc.setName', file.name);
 
@@ -432,7 +451,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
     });
 
     events.function('doc.open', async () => {
-        if (!events.invoke('scene.empty') && !await getResetConfirmation()) {
+        if (!events.invoke('scene.empty') && !(await getResetConfirmation())) {
             return false;
         }
 
@@ -454,7 +473,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                     const fileHandle = fileHandles[0];
 
                     // null file handle incase loadDocument fails
-                    if (!await loadDocument(await fileHandle.getFile(), fileHandle)) return false;
+                    if (!(await loadDocument(await fileHandle.getFile(), fileHandle))) return false;
 
                     // store file handle for subsequent saves
                     documentFileHandle = fileHandle;
@@ -470,18 +489,18 @@ const registerDocEvents = (scene: Scene, events: Events) => {
     });
 
     events.function('doc.openRecent', async (fileHandle: FileSystemFileHandle) => {
-        if (!events.invoke('scene.empty') && !await getResetConfirmation()) {
+        if (!events.invoke('scene.empty') && !(await getResetConfirmation())) {
             return false;
         }
 
         try {
-            if (await fileHandle.queryPermission({ mode: 'read' }) !== 'granted') {
-                if (await fileHandle.requestPermission({ mode: 'read' }) !== 'granted') {
+            if ((await fileHandle.queryPermission({ mode: 'read' })) !== 'granted') {
+                if ((await fileHandle.requestPermission({ mode: 'read' })) !== 'granted') {
                     return false;
                 }
             }
 
-            if (!await loadDocument(await fileHandle.getFile(), fileHandle)) return false;
+            if (!(await loadDocument(await fileHandle.getFile(), fileHandle))) return false;
 
             // store file handle for subsequent saves
             documentFileHandle = fileHandle;
@@ -525,7 +544,12 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             const hasFilePicker = !!window.showDirectoryPicker;
             const directory = hasFilePicker ? await events.invoke('scene.getExportDirectory') : undefined;
 
-            const options = await events.invoke('show.savePopup', events.invoke('doc.name') || 'scene.ssproj', directory, documentSource);
+            const options = await events.invoke(
+                'show.savePopup',
+                events.invoke('doc.name') || 'scene.ssproj',
+                directory,
+                documentSource
+            );
             if (!options) return false;
 
             if (hasFilePicker) {
@@ -542,7 +566,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 events.fire('doc.setName', handle.name);
                 recentFiles.add({ handle, name: handle.name });
             } else {
-                if (!await saveDocument({ filename: options.filename })) {
+                if (!(await saveDocument({ filename: options.filename }))) {
                     return false;
                 }
                 events.fire('doc.setName', options.filename);

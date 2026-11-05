@@ -3,7 +3,7 @@
 // ghost passes re-render the geometry after the splat layer, dimmed and
 // without depth testing, so occluded parts remain faintly visible.
 
-const dotVertexShader = /* wgsl */`
+const dotVertexShader = /* wgsl */ `
 attribute vertex_position: vec3f;
 attribute vertex_texCoord0: vec2f;
 
@@ -21,7 +21,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 }
 `;
 
-const dotFragmentShader = /* wgsl */`
+const dotFragmentShader = /* wgsl */ `
 uniform ghost: f32;
 uniform dotColor: vec4f;
 
@@ -47,7 +47,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
 }
 `;
 
-const lineVertexShader = /* wgsl */`
+const lineVertexShader = /* wgsl */ `
 attribute vertex_position: vec3f;
 
 uniform matrix_model: mat4x4f;
@@ -61,7 +61,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 }
 `;
 
-const lineFragmentShader = /* wgsl */`
+const lineFragmentShader = /* wgsl */ `
 uniform lineColor: vec4f;
 
 @fragment
@@ -72,7 +72,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
 }
 `;
 
-const fillVertexShader = /* wgsl */`
+const fillVertexShader = /* wgsl */ `
 attribute vertex_position: vec3f;
 
 uniform matrix_model: mat4x4f;
@@ -86,7 +86,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 }
 `;
 
-const fillFragmentShader = /* wgsl */`
+const fillFragmentShader = /* wgsl */ `
 uniform fillColor: vec4f;
 
 var blueNoiseTex32: texture_2d<f32>;

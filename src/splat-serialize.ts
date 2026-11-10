@@ -660,6 +660,8 @@ const createGpuDevice = async (): Promise<WebgpuGraphicsDevice> => {
     graphicsDevice.once('devicelost', () => {
         gpuDeviceLostCount++;
         if (cachedGpuDevice === graphicsDevice) {
+            // The device destroy drops this reference without freeing the texture.
+            cachedBackbuffer?.destroy();
             cachedGpuDevice = null;
             cachedBackbuffer = null;
         }

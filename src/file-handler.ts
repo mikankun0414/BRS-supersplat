@@ -20,8 +20,15 @@ import { recentImports } from './recent-files';
 import type { RecentImport } from './recent-files';
 import type { Scene } from './scene';
 import type { Splat } from './splat';
-import { serializeSog, serializeSpz, serializeViewer, WebGPUUnavailableError, writeSplatFile } from './splat-serialize';
 import type { SogSettings, SpzSettings } from './splat-serialize';
+import {
+    GpuDeviceLostError,
+    serializeSog,
+    serializeSpz,
+    serializeViewer,
+    WebGPUUnavailableError,
+    writeSplatFile
+} from './splat-serialize';
 import { i18n } from './ui/localization';
 
 // ts compiler and vscode find this type, but eslint does not
@@ -1024,6 +1031,12 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
                         type: 'error',
                         header: i18n.t('popup.error'),
                         message: i18n.t('popup.webgpu-unavailable')
+                    });
+                } else if (error instanceof GpuDeviceLostError) {
+                    await events.invoke('showPopup', {
+                        type: 'error',
+                        header: i18n.t('popup.error'),
+                        message: i18n.t('popup.gpu-device-lost')
                     });
                 } else {
                     const message = error instanceof Error ? error.message : String(error);

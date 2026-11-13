@@ -173,7 +173,7 @@
     },
     {
       "agent": "antigravity",
-      "model": "gemini-3.8-flash-medium",
+      "model": "gemini-4-hydrogen-medium",
       "effort": null,
       "origin": "google",
       "classes": [
@@ -195,7 +195,7 @@
     },
     {
       "agent": "antigravity",
-      "model": "gemini-3.8-flash-high",
+      "model": "gemini-4-hydrogen-high",
       "effort": null,
       "origin": "google",
       "classes": [
@@ -516,7 +516,7 @@
         "previz-qa"
       ],
       "agent": "antigravity",
-      "model": "gemini-3.8-flash-medium"
+      "model": "gemini-4-hydrogen-medium"
     },
     {
       "purpose": "image-and-documents",
@@ -527,7 +527,7 @@
         "research"
       ],
       "agent": "antigravity",
-      "model": "gemini-3.8-flash-medium"
+      "model": "gemini-4-hydrogen-medium"
     },
     {
       "purpose": "image-and-documents",
@@ -538,7 +538,7 @@
         "previz-qa"
       ],
       "agent": "antigravity",
-      "model": "gemini-3.8-flash-high"
+      "model": "gemini-4-hydrogen-high"
     },
     {
       "purpose": "hard-design",

@@ -56,6 +56,23 @@
       "note": "From 2026-10-20, second choice for difficult design and fixes after gemini-4-argon-medium."
     },
     {
+      "agent": "codex",
+      "model": "gpt-6.1-terra",
+      "effort": "medium",
+      "origin": "openai",
+      "classes": [
+        "STANDARD"
+      ],
+      "roles": [
+        "coordinator",
+        "coder",
+        "tester",
+        "research"
+      ],
+      "enabled": true,
+      "note": "2026-10-27 added from the local Codex catalog (GPT-6.1 Terra). Tier not stated in the catalog; placed at STANDARD. Not in routing_preferences yet."
+    },
+    {
       "agent": "claude",
       "model": "sonnet",
       "effort": null,
@@ -534,6 +551,16 @@
       ],
       "agent": "codex",
       "model": "gpt-6-astra"
+    },
+    {
+      "purpose": "final-review",
+      "class": "STRONG",
+      "roles": [
+        "reviewer",
+        "judge"
+      ],
+      "agent": "antigravity",
+      "model": "gemini-4-argon-medium"
     },
     {
       "purpose": "final-review",

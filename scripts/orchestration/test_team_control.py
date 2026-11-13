@@ -83,7 +83,8 @@ class RoutingTests(unittest.TestCase):
     def test_catalog_and_effort_are_required(self):
         self.data['codex_models']=[]
         self.assertTrue(t.choose(self.data,self.codex_only)['blocked'])
-        self.setUp(); self.data['codex_models'][0]['efforts']=[]
+        self.setUp()
+        for m in self.data['codex_models']: m['efforts']=[]
         self.assertTrue(t.choose(self.data,self.codex_only)['blocked'])
 
     def test_review_different_origin(self):
